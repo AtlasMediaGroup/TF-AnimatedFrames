@@ -28,8 +28,8 @@
 
 package org.inventivetalent.animatedframes;
 
-public interface Callback<T> {
+public interface Callback<T>
+{
 
-	void call(T t);
-
+    void call(T t);
 }

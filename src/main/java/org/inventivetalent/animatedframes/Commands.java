@@ -33,6 +33,7 @@ import net.md_5.bungee.api.chat.ClickEvent;
 import net.md_5.bungee.api.chat.ComponentBuilder;
 import net.md_5.bungee.api.chat.HoverEvent;
 import net.md_5.bungee.api.chat.TextComponent;
+import net.md_5.bungee.api.chat.hover.content.Text;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.block.Block;
@@ -41,10 +42,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.ItemFrame;
 import org.bukkit.entity.Player;
-import org.bukkit.event.player.PlayerInteractEntityEvent;
-import org.bukkit.event.player.PlayerInteractEvent;
 import org.inventivetalent.animatedframes.clickable.CursorPosition;
-import org.inventivetalent.mapmanager.event.MapInteractEvent;
 import org.inventivetalent.pluginannotations.PluginAnnotations;
 import org.inventivetalent.pluginannotations.command.Command;
 import org.inventivetalent.pluginannotations.command.Completion;
@@ -58,602 +56,642 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.*;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
-public class Commands {
+public class Commands
+{
 
-	static final MessageLoader MESSAGE_LOADER = PluginAnnotations.MESSAGE.newMessageLoader(Bukkit.getPluginManager().getPlugin("AnimatedFrames"), "config.yml", "message.command", null);
+    private static final MessageLoader MESSAGE_LOADER = PluginAnnotations.MESSAGE.newMessageLoader(Bukkit.getPluginManager().getPlugin("AnimatedFrames"), "config.yml", "message.command", null);
 
-	private AnimatedFramesPlugin plugin;
+    private final AnimatedFramesPlugin plugin;
 
-	public Commands(AnimatedFramesPlugin plugin) {
-		this.plugin = plugin;
-	}
+    public Commands(AnimatedFramesPlugin plugin)
+    {
+        this.plugin = plugin;
+    }
 
-	@Command(name = "animatedframes",
-			 aliases = {
-					 "af",
-					 "afhelp",
-					 "framehelp"
-			 },
-			 usage = "",
-			 max = 0,
-			 fallbackPrefix = "animatedframes")
-	public void helpCommand(final CommandSender sender) {
-		sender.sendMessage("§6AnimatedFrames v" + plugin.getDescription().getVersion() + (plugin.updateAvailable ? " §a*Update available" : ""));
-		sender.sendMessage(" ");
+    @Command(name = "animatedframes",
+            aliases = {
+                    "af",
+                    "afhelp",
+                    "framehelp"
+            },
+            max = 0,
+            fallbackPrefix = "animatedframes")
+    public void helpCommand(final CommandSender sender)
+    {
+        sender.sendMessage("§6AnimatedFrames v" + plugin.getDescription().getVersion() + (plugin.updateAvailable ? " §a*Update available" : ""));
+        sender.sendMessage(" ");
 
-		int c = 0;
-		if (sender.hasPermission("animatedframes.create")) {
-			c++;
-			sender.sendMessage("§e/afcreate <Name> <Image>");
-			sender.sendMessage("§bCreate a new image");
-			sender.sendMessage(" ");
-		}
-		if (sender.hasPermission("animatedframes.remove")) {
-			c++;
-			sender.sendMessage("§e/afremove <Name>");
-			sender.sendMessage("§bRemove an existing image");
-			sender.sendMessage(" ");
-		}
-		if (sender.hasPermission("animatedframes.list")) {
-			c++;
-			sender.sendMessage("§e/aflist");
-			sender.sendMessage("§bGet a list of images");
-			sender.sendMessage(" ");
-		}
+        int c = 0;
+        if (sender.hasPermission("animatedframes.create"))
+        {
+            c++;
+            sender.sendMessage("§e/afcreate <Name> <Image>");
+            sender.sendMessage("§bCreate a new image");
+            sender.sendMessage(" ");
+        }
+        if (sender.hasPermission("animatedframes.remove"))
+        {
+            c++;
+            sender.sendMessage("§e/afremove <Name>");
+            sender.sendMessage("§bRemove an existing image");
+            sender.sendMessage(" ");
+        }
+        if (sender.hasPermission("animatedframes.list"))
+        {
+            c++;
+            sender.sendMessage("§e/aflist");
+            sender.sendMessage("§bGet a list of images");
+            sender.sendMessage(" ");
+        }
 
-		if (c > 0) {
-			sender.sendMessage("§eType §a/help <Command> §efor more information.");
-		}
-	}
+        if (c > 0)
+        {
+            sender.sendMessage("§eType §a/help <Command> §efor more information.");
+        }
+    }
 
-	@Command(name = "framecreate",
-			 aliases = {
-					 "afcreate",
-					 "createframe",
-					 "afc"
-			 },
-			 usage = "<Name> <Image>",
-			 description = "Create a new image",
-			 min = 2,
-			 max = 2,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.create")
-	public void frameCreate(final Player sender, final String name, final String image) {
-		if (plugin.frameManager.doesFrameExist(name)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("create.error.exists", "create.error.exists"));
-			return;
-		}
+    @Command(name = "framecreate",
+            aliases = {
+                    "afcreate",
+                    "createframe",
+                    "afc"
+            },
+            usage = "<Name> <Image>",
+            description = "Create a new image",
+            min = 2,
+            max = 2,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.create")
+    public void frameCreate(final Player sender, final String name, final String image)
+    {
+        if (plugin.frameManager.doesFrameExist(name))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("create.error.exists", "create.error.exists"));
+            return;
+        }
 
-		boolean validImage = false;
-		try {
-			new URL(image);
-			validImage = true;
-		} catch (MalformedURLException e) {
-			try {
-				if (!new File(image).exists()) { throw new FileNotFoundException(); }
-				validImage = true;
-			} catch (FileNotFoundException e1) {
-			}
-		}
-		if (!validImage) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("create.error.invalidImage", "create.error.invalidImage"));
-			return;
-		}
-		if (!checkImageType(image)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("create.error.unknownType", "create.error.unknownType"));
-			// Just a warning -> carry on
-		}
+        boolean validImage = false;
+        try
+        {
+            new URL(image);
+            validImage = true;
+        }
+        catch (MalformedURLException e)
+        {
+            try
+            {
+                if (!new File(image).exists())
+                {
+                    throw new FileNotFoundException();
+                }
+                validImage = true;
+            }
+            catch (FileNotFoundException ignored)
+            {
+            }
+        }
+        if (!validImage)
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("create.error.invalidImage", "create.error.invalidImage"));
+            return;
+        }
+        if (!checkImageType(image))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("create.error.unknownType", "create.error.unknownType"));
+            // Just a warning -> carry on
+        }
 
-		sender.sendMessage("  ");
-		sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.first", "create.setup.first"));
-		plugin.interactListener.listenForEntityInteract(sender, new Callback<PlayerInteractEntityEvent>() {
-			@Override
-			public void call(PlayerInteractEntityEvent event) {
-				if (event != null && event.getRightClicked().getType() == EntityType.ITEM_FRAME) {
-					final ItemFrame firstFrame = (ItemFrame) event.getRightClicked();
-					sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.set.first", "create.setup.set.first"));
-					sender.sendMessage("  ");
+        sender.sendMessage("  ");
+        sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.first", "create.setup.first"));
+        plugin.interactListener.listenForEntityInteract(sender, event ->
+        {
+            if (event != null && event.getRightClicked().getType() == EntityType.ITEM_FRAME)
+            {
+                final ItemFrame firstFrame = (ItemFrame) event.getRightClicked();
+                sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.set.first", "create.setup.set.first"));
+                sender.sendMessage("  ");
 
-					Bukkit.getScheduler().runTaskLater(plugin, new Runnable() {
-						@Override
-						public void run() {
-							sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.second", "create.setup.second"));
-							plugin.interactListener.listenForEntityInteract(sender, new Callback<PlayerInteractEntityEvent>() {
-								@Override
-								public void call(final PlayerInteractEntityEvent event) {
-									if (event != null && event.getRightClicked().getType() == EntityType.ITEM_FRAME) {
-										final ItemFrame secondFrame = (ItemFrame) event.getRightClicked();
-										sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.set.second", "create.setup.set.second"));
-										sender.sendMessage("  ");
+                Bukkit.getScheduler().runTaskLater(plugin, () ->
+                {
+                    sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.second", "create.setup.second"));
+                    plugin.interactListener.listenForEntityInteract(sender, event1 ->
+                    {
+                        if (event1 != null && event1.getRightClicked().getType() == EntityType.ITEM_FRAME)
+                        {
+                            final ItemFrame secondFrame = (ItemFrame) event1.getRightClicked();
+                            sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.set.second", "create.setup.set.second"));
+                            sender.sendMessage("  ");
 
-										sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.complete", "create.setup.complete", new MessageFormatter() {
-											@Override
-											public String format(String key, String message) {
-												return String.format(message, name, image);
-											}
-										}));
-										sender.sendMessage("  ");
-										plugin.frameExecutor.execute(new Runnable() {
-											@Override
-											public void run() {
-												sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.loading", "create.setup.loading"));
-												final AnimatedFrame frame = plugin.frameManager.createFrame(name, image, firstFrame, secondFrame);
-												frame.creator = sender.getUniqueId();
+                            sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.complete", "create.setup.complete", new MessageFormatter()
+                            {
+                                @Override
+                                public String format(String key, String message)
+                                {
+                                    return String.format(message, name, image);
+                                }
+                            }));
+                            sender.sendMessage("  ");
+                            plugin.frameExecutor.execute(() ->
+                            {
+                                sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.loading", "create.setup.loading"));
+                                final AnimatedFrame frame = plugin.frameManager.createFrame(name, image, firstFrame, secondFrame);
+                                frame.creator = sender.getUniqueId();
 
-												// Save frame & index
-												sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.saving", "create.setup.saving"));
-												plugin.frameManager.writeToFile(frame);
-												plugin.frameManager.writeIndexToFile();
+                                // Save frame & index
+                                sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.saving", "create.setup.saving"));
+                                plugin.frameManager.writeToFile(frame);
+                                plugin.frameManager.writeIndexToFile();
 
-												frame.refresh();
-												plugin.frameManager.startFrame(frame);
+                                frame.refresh();
+                                plugin.frameManager.startFrame(frame);
 
-												sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.starting", "create.setup.starting"));
-												frame.startCallback = new Callback<Void>() {
-													@Override
-													public void call(Void aVoid) {
-														Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, new Runnable() {
-															@Override
-															public void run() {
-																frame.addViewer(event.getPlayer());
-																sender.sendMessage("  ");
-																sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.started", "create.setup.started"));
+                                sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.starting", "create.setup.starting"));
+                                frame.startCallback = aVoid -> Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () ->
+                                {
+                                    frame.addViewer(event1.getPlayer());
+                                    sender.sendMessage("  ");
+                                    sender.sendMessage(MESSAGE_LOADER.getMessage("create.setup.started", "create.setup.started"));
 
-																// Add players in the world
-																Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, new Runnable() {
-																	@Override
-																	public void run() {
-																		for (Player player : event.getPlayer().getWorld().getPlayers()) {
-																			if (player.getUniqueId().equals(event.getPlayer().getUniqueId())) { continue; }// Skip the creator
-																			frame.addViewer(player);
-																		}
-																	}
-																}, 20);
-															}
-														}, 40);
-													}
-												};
-												frame.setPlaying(true);
-											}
-										});
-									}
-								}
-							});
-						}
-					}, 10);
-				}
-			}
-		});
-	}
+                                    // Add players in the world
+                                    Bukkit.getScheduler().runTaskLaterAsynchronously(plugin, () ->
+                                    {
+                                        for (Player player : event1.getPlayer().getWorld().getPlayers())
+                                        {
+                                            if (player.getUniqueId().equals(event1.getPlayer().getUniqueId()))
+                                            {
+                                                continue;
+                                            }// Skip the creator
+                                            frame.addViewer(player);
+                                        }
+                                    }, 20);
+                                }, 40);
+                                frame.setPlaying(true);
+                            });
+                        }
+                    });
+                }, 10);
+            }
+        });
+    }
 
-	@Command(name = "frameremove",
-			 aliases = {
-					 "afremove",
-					 "removeframe",
-					 "afr",
-					 "afrem",
-			 },
-			 usage = "<Name>",
-			 description = "Remove an image",
-			 min = 1,
-			 max = 1,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.remove")
-	public void frameRemove(final CommandSender sender, final String name) {
-		if (!plugin.frameManager.doesFrameExist(name)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("delete.error.notFound", "delete.error.notFound"));
-			return;
-		}
-		final AnimatedFrame frame = plugin.frameManager.getFrame(name);
+    @Command(name = "frameremove",
+            aliases = {
+                    "afremove",
+                    "removeframe",
+                    "afr",
+                    "afrem",
+            },
+            usage = "<Name>",
+            description = "Remove an image",
+            min = 1,
+            max = 1,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.remove")
+    public void frameRemove(final CommandSender sender, final String name)
+    {
+        if (!plugin.frameManager.doesFrameExist(name))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("delete.error.notFound", "delete.error.notFound"));
+            return;
+        }
+        final AnimatedFrame frame = plugin.frameManager.getFrame(name);
 
-		sender.sendMessage(MESSAGE_LOADER.getMessage("delete.stopping", "delete.stopping"));
-		plugin.frameManager.stopFrame(frame);
-		Bukkit.getScheduler().runTaskLater(plugin, new Runnable() {
-			@Override
-			public void run() {
-				frame.clearFrames();
-				plugin.frameManager.removeFrame(frame);
-				sender.sendMessage(MESSAGE_LOADER.getMessage("delete.removed", "delete.removed"));
-			}
-		}, 20);
-	}
+        sender.sendMessage(MESSAGE_LOADER.getMessage("delete.stopping", "delete.stopping"));
+        plugin.frameManager.stopFrame(frame);
+        Bukkit.getScheduler().runTaskLater(plugin, () ->
+        {
+            frame.clearFrames();
+            plugin.frameManager.removeFrame(frame);
+            sender.sendMessage(MESSAGE_LOADER.getMessage("delete.removed", "delete.removed"));
+        }, 20);
+    }
 
-	@Completion(name = "frameremove")
-	public void frameRemove(final List<String> completions, final Player sender, final String name) {
-		//		if (name == null || name.isEmpty()) {
-		for (AnimatedFrame frame : plugin.frameManager.getFrames()) {
-			completions.add(frame.getName());
-		}
-		//		}
-	}
+    @Completion(name = "frameremove")
+    public void frameRemove(final List<String> completions, final Player sender, final String name)
+    {
+        //		if (name == null || name.isEmpty()) {
+        for (AnimatedFrame frame : plugin.frameManager.getFrames())
+        {
+            completions.add(frame.getName());
+        }
+        //		}
+    }
 
-	@Command(name = "framelist",
-			 aliases = {
-					 "aflist",
-					 "listframes",
-					 "afl"
-			 },
-			 usage = "",
-			 description = "Get a list of frames",
-			 max = 0,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.list")
-	public void frameList(final Player sender) {
-		sender.sendMessage("  ");
+    @Command(name = "framelist",
+            aliases = {
+                    "aflist",
+                    "listframes",
+                    "afl"
+            },
+            description = "Get a list of frames",
+            max = 0,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.list")
+    public void frameList(final Player sender)
+    {
+        sender.sendMessage("  ");
 
-		List<AnimatedFrame> frames = plugin.frameManager.getSortedFrames();
-		sender.sendMessage("§eFrames (" + frames.size() + "): ");
-		for (AnimatedFrame frame : frames) {
-			TextComponent component = new TextComponent(frame.getName());
+        List<AnimatedFrame> frames = plugin.frameManager.getSortedFrames();
+        sender.sendMessage("§eFrames (" + frames.size() + "): ");
+        for (AnimatedFrame frame : frames)
+        {
+            TextComponent component = new TextComponent(frame.getName());
 
-			component.addExtra(new ComponentBuilder(" (" + (frame.isImageLoaded() ? (frame.isPlaying() ? "playing" : "stopped") : "loading") + ")").color(ChatColor.GRAY).create()[0]);
+            component.addExtra(new ComponentBuilder(" (" + (frame.isImageLoaded() ? (frame.isPlaying() ? "playing" : "stopped") : "loading") + ")").color(ChatColor.GRAY).create()[0]);
 
-			Vector3DDouble teleportVector = frame.getBaseVector();
-			ClickEvent teleportClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tp " + teleportVector.getX() + " " + teleportVector.getY() + " " + teleportVector.getZ());
-			HoverEvent teleportHover = new HoverEvent(HoverEvent.Action.SHOW_TEXT, new ComponentBuilder("Teleport to " + teleportVector.getX() + "," + teleportVector.getY() + "," + teleportVector.getZ()).color(ChatColor.GRAY).create());
-			component.addExtra(new ComponentBuilder(" [Teleport]").color(ChatColor.YELLOW).bold(true).event(teleportClick).event(teleportHover).create()[0]);
+            Vector3DDouble teleportVector = frame.getBaseVector();
+            ClickEvent teleportClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/tp " + teleportVector.getX() + " " + teleportVector.getY() + " " + teleportVector.getZ());
+            HoverEvent teleportHover = new HoverEvent(HoverEvent.Action.SHOW_TEXT, new Text(ChatColor.GRAY + "Teleport to " + teleportVector.getX() + "," + teleportVector.getY() + "," + teleportVector.getZ()));
+            component.addExtra(new ComponentBuilder(" [Teleport]").color(ChatColor.YELLOW).bold(true).event(teleportClick).event(teleportHover).create()[0]);
 
-			ClickEvent deleteClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/frameremove " + frame.getName());
-			component.addExtra(new ComponentBuilder(" [Delete] ").color(ChatColor.RED).event(deleteClick).create()[0]);
+            ClickEvent deleteClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/frameremove " + frame.getName());
+            component.addExtra(new ComponentBuilder(" [Delete] ").color(ChatColor.RED).event(deleteClick).create()[0]);
 
-			ClickEvent playClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/framestart " + frame.getName());
-			ClickEvent pauseClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/framepause " + frame.getName());
-			component.addExtra(new ComponentBuilder(frame.isPlaying() ? " [❚❚]" : " [►]").color(frame.isPlaying() ? ChatColor.YELLOW : ChatColor.GREEN).event(frame.isPlaying() ? pauseClick : playClick).create()[0]);
+            ClickEvent playClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/framestart " + frame.getName());
+            ClickEvent pauseClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/framepause " + frame.getName());
+            component.addExtra(new ComponentBuilder(frame.isPlaying() ? " [❚❚]" : " [►]").color(frame.isPlaying() ? ChatColor.YELLOW : ChatColor.GREEN).event(frame.isPlaying() ? pauseClick : playClick).create()[0]);
 
-			ClickEvent stopClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/framestop " + frame.getName());
-			component.addExtra(new ComponentBuilder(" [■]").color(frame.isPlaying() ? ChatColor.RED : ChatColor.GRAY).event(stopClick).create()[0]);
+            ClickEvent stopClick = new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/framestop " + frame.getName());
+            component.addExtra(new ComponentBuilder(" [■]").color(frame.isPlaying() ? ChatColor.RED : ChatColor.GRAY).event(stopClick).create()[0]);
 
-			sender.spigot().sendMessage(component);
-		}
-	}
+            sender.spigot().sendMessage(component);
+        }
+    }
 
-	@Command(name = "framestart",
-			 aliases = {
-					 "afstart",
-					 "startframe",
-					 "frameresume",
-					 "afresume",
-					 "resumeframe"
-			 },
-			 usage = "<Name>",
-			 description = "Start a stopped/paused frame",
-			 min = 1,
-			 max = 1,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.start")
-	public void frameStart(final CommandSender sender, final String name) {
-		if (!plugin.frameManager.doesFrameExist(name)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("start.error.notFound", "start.error.notFound"));
-			return;
-		}
-		final AnimatedFrame frame = plugin.frameManager.getFrame(name);
-		if (frame.isPlaying()) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("start.error.playing", "start.error.playing"));
-			return;
-		}
+    @Command(name = "framestart",
+            aliases = {
+                    "afstart",
+                    "startframe",
+                    "frameresume",
+                    "afresume",
+                    "resumeframe"
+            },
+            usage = "<Name>",
+            description = "Start a stopped/paused frame",
+            min = 1,
+            max = 1,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.start")
+    public void frameStart(final CommandSender sender, final String name)
+    {
+        if (!plugin.frameManager.doesFrameExist(name))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("start.error.notFound", "start.error.notFound"));
+            return;
+        }
+        final AnimatedFrame frame = plugin.frameManager.getFrame(name);
+        if (frame.isPlaying())
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("start.error.playing", "start.error.playing"));
+            return;
+        }
 
-		sender.sendMessage(MESSAGE_LOADER.getMessage("start.starting", "start.starting"));
-		frame.setPlaying(true);
-		plugin.frameManager.startFrame(frame);
-	}
+        sender.sendMessage(MESSAGE_LOADER.getMessage("start.starting", "start.starting"));
+        frame.setPlaying(true);
+        plugin.frameManager.startFrame(frame);
+    }
 
-	@Command(name = "framepause",
-			 aliases = {
-					 "afpause",
-					 "pauseframe"
-			 },
-			 usage = "<Name>",
-			 description = "Pauses a frame",
-			 min = 1,
-			 max = 1,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.pause")
-	public void framePause(final CommandSender sender, final String name) {
-		if (!plugin.frameManager.doesFrameExist(name)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("pause.error.notFound", "pause.error.notFound"));
-			return;
-		}
-		final AnimatedFrame frame = plugin.frameManager.getFrame(name);
-		if (!frame.isPlaying()) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("pause.error.notPlaying", "pause.error.notPlaying"));
-			return;
-		}
+    @Command(name = "framepause",
+            aliases = {
+                    "afpause",
+                    "pauseframe"
+            },
+            usage = "<Name>",
+            description = "Pauses a frame",
+            min = 1,
+            max = 1,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.pause")
+    public void framePause(final CommandSender sender, final String name)
+    {
+        if (!plugin.frameManager.doesFrameExist(name))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("pause.error.notFound", "pause.error.notFound"));
+            return;
+        }
+        final AnimatedFrame frame = plugin.frameManager.getFrame(name);
+        if (!frame.isPlaying())
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("pause.error.notPlaying", "pause.error.notPlaying"));
+            return;
+        }
 
-		sender.sendMessage(MESSAGE_LOADER.getMessage("pause.pausing", "pause.pausing"));
-		plugin.frameManager.stopFrame(frame);
-	}
+        sender.sendMessage(MESSAGE_LOADER.getMessage("pause.pausing", "pause.pausing"));
+        plugin.frameManager.stopFrame(frame);
+    }
 
-	@Command(name = "framestop",
-			 aliases = {
-					 "afstop",
-					 "stopframe"
-			 },
-			 usage = "<Name>",
-			 description = "Stop a frame",
-			 min = 1,
-			 max = 1,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.stop")
-	public void frameStop(final CommandSender sender, final String name) {
-		if (!plugin.frameManager.doesFrameExist(name)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("stop.error.notFound", "stop.error.notFound"));
-			return;
-		}
-		final AnimatedFrame frame = plugin.frameManager.getFrame(name);
-		if (!frame.isPlaying()) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("stop.error.notPlaying", "stop.error.notPlaying"));
-			return;
-		}
+    @Command(name = "framestop",
+            aliases = {
+                    "afstop",
+                    "stopframe"
+            },
+            usage = "<Name>",
+            description = "Stop a frame",
+            min = 1,
+            max = 1,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.stop")
+    public void frameStop(final CommandSender sender, final String name)
+    {
+        if (!plugin.frameManager.doesFrameExist(name))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("stop.error.notFound", "stop.error.notFound"));
+            return;
+        }
+        final AnimatedFrame frame = plugin.frameManager.getFrame(name);
+        if (!frame.isPlaying())
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("stop.error.notPlaying", "stop.error.notPlaying"));
+            return;
+        }
 
-		sender.sendMessage(MESSAGE_LOADER.getMessage("stop.stopping", "stop.stopping"));
-		plugin.frameManager.stopFrame(frame);
-		frame.setCurrentFrame(0);
-	}
+        sender.sendMessage(MESSAGE_LOADER.getMessage("stop.stopping", "stop.stopping"));
+        plugin.frameManager.stopFrame(frame);
+        frame.setCurrentFrame(0);
+    }
 
-	@Command(name = "framenext",
-			 aliases = {
-					 "afnext",
-					 "nextframe"
-			 },
-			 usage = "<Name>",
-			 description = "Go to the next frame of the animation",
-			 min = 1,
-			 max = 1,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.nextframe")
-	public void frameNext(final CommandSender sender, final String name) {
-		if (!plugin.frameManager.doesFrameExist(name)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("next.error.notFound", "next.error.notFound"));
-			return;
-		}
-		final AnimatedFrame frame = plugin.frameManager.getFrame(name);
-		if (frame.isPlaying()) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("next.error.notPaused", "next.error.notPaused"));
-			return;
-		}
+    @Command(name = "framenext",
+            aliases = {
+                    "afnext",
+                    "nextframe"
+            },
+            usage = "<Name>",
+            description = "Go to the next frame of the animation",
+            min = 1,
+            max = 1,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.nextframe")
+    public void frameNext(final CommandSender sender, final String name)
+    {
+        if (!plugin.frameManager.doesFrameExist(name))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("next.error.notFound", "next.error.notFound"));
+            return;
+        }
+        final AnimatedFrame frame = plugin.frameManager.getFrame(name);
+        if (frame.isPlaying())
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("next.error.notPaused", "next.error.notPaused"));
+            return;
+        }
 
-		sender.sendMessage(MESSAGE_LOADER.getMessage("next.success", "next.success"));
+        sender.sendMessage(MESSAGE_LOADER.getMessage("next.success", "next.success"));
 
-		if (frame.getCurrentFrame() >= frame.getLength()) {
-			frame.goToFrameAndDisplay(0);
-		} else {
-			frame.goToFrameAndDisplay(frame.getCurrentFrame() + 1);
-		}
-	}
+        if (frame.getCurrentFrame() >= frame.getLength())
+        {
+            frame.goToFrameAndDisplay(0);
+        }
+        else
+        {
+            frame.goToFrameAndDisplay(frame.getCurrentFrame() + 1);
+        }
+    }
 
-	@Command(name = "frameprevious",
-			 aliases = {
-					 "afprevious",
-					 "previousframe",
-					 "prevframe"
-			 },
-			 usage = "<Name>",
-			 description = "Go to the previous frame of the animation",
-			 min = 1,
-			 max = 1,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.previousframe")
-	public void frameprevious(final CommandSender sender, final String name) {
-		if (!plugin.frameManager.doesFrameExist(name)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("previous.error.notFound", "previous.error.notFound"));
-			return;
-		}
-		final AnimatedFrame frame = plugin.frameManager.getFrame(name);
-		if (frame.isPlaying()) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("previous.error.notPaused", "previous.error.notPaused"));
-			return;
-		}
+    @Command(name = "frameprevious",
+            aliases = {
+                    "afprevious",
+                    "previousframe",
+                    "prevframe"
+            },
+            usage = "<Name>",
+            description = "Go to the previous frame of the animation",
+            min = 1,
+            max = 1,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.previousframe")
+    public void frameprevious(final CommandSender sender, final String name)
+    {
+        if (!plugin.frameManager.doesFrameExist(name))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("previous.error.notFound", "previous.error.notFound"));
+            return;
+        }
+        final AnimatedFrame frame = plugin.frameManager.getFrame(name);
+        if (frame.isPlaying())
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("previous.error.notPaused", "previous.error.notPaused"));
+            return;
+        }
 
-		sender.sendMessage(MESSAGE_LOADER.getMessage("previous.success", "previous.success"));
+        sender.sendMessage(MESSAGE_LOADER.getMessage("previous.success", "previous.success"));
 
-		if (frame.getCurrentFrame() <= 0) {
-			frame.goToFrameAndDisplay(frame.getLength() - 1);
-		} else {
-			frame.goToFrameAndDisplay(frame.getCurrentFrame() - 1);
-		}
-	}
+        if (frame.getCurrentFrame() <= 0)
+        {
+            frame.goToFrameAndDisplay(frame.getLength() - 1);
+        }
+        else
+        {
+            frame.goToFrameAndDisplay(frame.getCurrentFrame() - 1);
+        }
+    }
 
-	@Command(name = "framecontent",
-			 aliases = {
-					 "afcontent"
-			 },
-			 usage = "<Target Name> <Source Name>",
-			 description = "Set the content of a frame to the contents of another",
-			 min = 2,
-			 max = 2,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.framecontent")
-	public void framecontent(final CommandSender sender, final String target, final String source) {
-		if (!plugin.frameManager.doesFrameExist(target)) {
-			sender.sendMessage("Target frame not found");
-			return;
-		}
-		if (!plugin.frameManager.doesFrameExist(source)) {
-			sender.sendMessage("Source frame not found");
-			return;
-		}
-		final AnimatedFrame targetFrame = plugin.frameManager.getFrame(target);
-		final AnimatedFrame sourceFrame = plugin.frameManager.getFrame(source);
+    @Command(name = "framecontent",
+            aliases = {
+                    "afcontent"
+            },
+            usage = "<Target Name> <Source Name>",
+            description = "Set the content of a frame to the contents of another",
+            min = 2,
+            max = 2,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.framecontent")
+    public void framecontent(final CommandSender sender, final String target, final String source)
+    {
+        if (!plugin.frameManager.doesFrameExist(target))
+        {
+            sender.sendMessage("Target frame not found");
+            return;
+        }
+        if (!plugin.frameManager.doesFrameExist(source))
+        {
+            sender.sendMessage("Source frame not found");
+            return;
+        }
+        final AnimatedFrame targetFrame = plugin.frameManager.getFrame(target);
+        final AnimatedFrame sourceFrame = plugin.frameManager.getFrame(source);
 
-		targetFrame.setContent(sourceFrame.getWrappers(), sourceFrame.getFrameDelays());
-	}
-
-
-	@Command(name = "frameclickadd",
-			 aliases = {
-					 "afaddclick"
-			 },
-			 usage = "<Name> <Action>",
-			 description = "Adds a click event with the specified action to a frame",
-			 min = 2,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.click.add")
-	public void frameClickAdd(final Player sender, final String name, final @JoinedArg String action) {
-		if (!plugin.frameManager.doesFrameExist(name)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("click.error.notFound", "click.error.notFound"));
-			return;
-		}
-		AnimatedFrame frame = plugin.frameManager.getFrame(name);
-
-
-		sender.sendMessage("  ");
-		sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.first", "click.setup.first"));
-		plugin.interactListener.listenForMapInteract(sender, new Callback<MapInteractEvent>() {
-			@Override
-			public void call(MapInteractEvent event) {
-				if (event != null) {
-					CursorPosition.CursorMapQueryResult firstPos = CursorPosition.findMenuByCursor(event.getPlayer(), Collections.singleton(frame));
-					if(firstPos!=null&&firstPos.isFound()) {
-						sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.set.first", "click.setup.set.first"));
-						sender.sendMessage("  ");
-
-						Bukkit.getScheduler().runTaskLater(plugin, new Runnable() {
-							@Override
-							public void run() {
-								sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.second", "click.setup.second"));
-								plugin.interactListener.listenForMapInteract(sender, new Callback<MapInteractEvent>() {
-									@Override
-									public void call(final MapInteractEvent event) {
-										if (event != null ) {
-											CursorPosition.CursorMapQueryResult secondPos = CursorPosition.findMenuByCursor(event.getPlayer(), Collections.singleton(frame));
-											if(secondPos!=null&&secondPos.isFound()) {
-												sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.set.second", "click.setup.set.second"));
-												sender.sendMessage("  ");
-
-												frame.clickEvents.add(new org.inventivetalent.animatedframes.clickable.ClickEvent(firstPos.getPosition().toVector(), secondPos.getPosition().toVector(), action));
-												plugin.frameManager.writeToFile(frame);
-												plugin.frameManager.writeIndexToFile();
-
-												sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.complete", "click.setup.complete", new MessageFormatter() {
-													@Override
-													public String format(String key, String message) {
-														return String.format(message, action);
-													}
-												}));
-												sender.sendMessage("  ");
-											}
-
-										}
-									}
-								});
-							}
-						}, 10);
-					}
-				}
-			}
-		});
-	}
-
-	@Command(name = "frameclickremove",
-			 aliases = {
-					 "afremoveclick"
-			 },
-			 usage = "<Name>",
-			 description = "Removes a click event",
-			 min = 1,
-			 max = 1,
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.click.remove")
-	public void frameClickRemove(final Player sender, final String name) {
-		if (!plugin.frameManager.doesFrameExist(name)) {
-			sender.sendMessage(MESSAGE_LOADER.getMessage("click.error.notFound", "click.error.notFound"));
-			return;
-		}
-		AnimatedFrame frame = plugin.frameManager.getFrame(name);
+        targetFrame.setContent(sourceFrame.getWrappers(), sourceFrame.getFrameDelays());
+    }
 
 
-		sender.sendMessage("  ");
-		sender.sendMessage(MESSAGE_LOADER.getMessage("click.remove", "click.remove"));
-		plugin.interactListener.listenForMapInteract(sender, new Callback<MapInteractEvent>() {
-			@Override
-			public void call(MapInteractEvent event) {
-				if (event != null) {
-					CursorPosition.CursorMapQueryResult pos = CursorPosition.findMenuByCursor(event.getPlayer(), Collections.singleton(frame));
-					if(pos!=null&&pos.isFound()) {
-						Optional<org.inventivetalent.animatedframes.clickable.ClickEvent> ev=frame.clickEvents.stream().filter(e->e.contains(pos.getPosition().getX(),pos.getPosition().getY())).findFirst();
-						if(ev.isPresent()) {
-							frame.clickEvents.remove(ev.get());
-							plugin.frameManager.writeToFile(frame);
-							plugin.frameManager.writeIndexToFile();
+    @Command(name = "frameclickadd",
+            aliases = {
+                    "afaddclick"
+            },
+            usage = "<Name> <Action>",
+            description = "Adds a click event with the specified action to a frame",
+            min = 2,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.click.add")
+    public void frameClickAdd(final Player sender, final String name, final @JoinedArg String action)
+    {
+        if (!plugin.frameManager.doesFrameExist(name))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("click.error.notFound", "click.error.notFound"));
+            return;
+        }
+        AnimatedFrame frame = plugin.frameManager.getFrame(name);
 
-							sender.sendMessage(MESSAGE_LOADER.getMessage("click.removed", "click.removed"));
-							sender.sendMessage("  ");
-						}
-					}
-				}
-			}
-		});
-	}
 
-	@Command(name = "placeframes",
-			 aliases = {
-					 "afplace",
-					 "frameplace",
-					 "generateframes",
-					 "afp",
-					 "afg"
-			 },
-			 usage = "",
-			 description = "Place item frames",
-			 fallbackPrefix = "animatedframes")
-	@Permission("animatedframes.place")
-	public void placeFrames(final Player sender) {
-		sender.sendMessage("  ");
-		Bukkit.getScheduler().runTaskLater(plugin, new Runnable() {
-			@Override
-			public void run() {
-				sender.sendMessage(MESSAGE_LOADER.getMessage("place.first", "place.first"));
-				plugin.interactListener.listenForInteract(sender, new Callback<PlayerInteractEvent>() {
-					@Override
-					public void call(PlayerInteractEvent event) {
-						final Block firstBlock = event.getClickedBlock();
-						final BlockFace firstFace = event.getBlockFace();
-						sender.sendMessage(MESSAGE_LOADER.getMessage("place.set.first", "place.set.first"));
+        sender.sendMessage("  ");
+        sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.first", "click.setup.first"));
+        plugin.interactListener.listenForMapInteract(sender, event ->
+        {
+            if (event != null)
+            {
+                CursorPosition.CursorMapQueryResult firstPos = CursorPosition.findMenuByCursor(event.getPlayer(), Collections.singleton(frame));
+                if (firstPos.isFound())
+                {
+                    sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.set.first", "click.setup.set.first"));
+                    sender.sendMessage("  ");
 
-						Bukkit.getScheduler().runTaskLater(plugin, new Runnable() {
-							@Override
-							public void run() {
-								sender.sendMessage("  ");
-								sender.sendMessage(MESSAGE_LOADER.getMessage("place.second", "place.second"));
-								plugin.interactListener.listenForInteract(sender, new Callback<PlayerInteractEvent>() {
-									@Override
-									public void call(PlayerInteractEvent event) {
-										final Block secondBlock = event.getClickedBlock();
-										final BlockFace secondFace = event.getBlockFace();
-										sender.sendMessage(MESSAGE_LOADER.getMessage("place.set.second", "place.set.second"));
+                    Bukkit.getScheduler().runTaskLater(plugin, () ->
+                    {
+                        sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.second", "click.setup.second"));
+                        plugin.interactListener.listenForMapInteract(sender, event1 ->
+                        {
+                            if (event1 != null)
+                            {
+                                CursorPosition.CursorMapQueryResult secondPos = CursorPosition.findMenuByCursor(event1.getPlayer(), Collections.singleton(frame));
+                                if (secondPos.isFound())
+                                {
+                                    sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.set.second", "click.setup.set.second"));
+                                    sender.sendMessage("  ");
 
-										if (firstFace != secondFace) {
-											sender.sendMessage(MESSAGE_LOADER.getMessage("place.error.face", "place.error.face"));
-											return;
-										}
+                                    frame.clickEvents.add(new org.inventivetalent.animatedframes.clickable.ClickEvent(firstPos.getPosition().toVector(), secondPos.getPosition().toVector(), action));
+                                    plugin.frameManager.writeToFile(frame);
+                                    plugin.frameManager.writeIndexToFile();
 
-										for (int x = firstBlock.getX(); x <= secondBlock.getX(); x++) {
-											for (int y = firstBlock.getY(); y <= secondBlock.getY(); y++) {
-												for (int z = firstBlock.getZ(); z <= secondBlock.getZ(); z++) {
-													Location location = new Location(firstBlock.getWorld(), x, y, z);
-													location = location.getBlock().getRelative(secondFace).getLocation();
-													ItemFrame frame = location.getWorld().spawn(location, ItemFrame.class);
-													frame.setFacingDirection(secondFace.getOppositeFace());
-												}
-											}
-										}
+                                    sender.sendMessage(MESSAGE_LOADER.getMessage("click.setup.complete", "click.setup.complete", new MessageFormatter()
+                                    {
+                                        @Override
+                                        public String format(String key, String message)
+                                        {
+                                            return String.format(message, action);
+                                        }
+                                    }));
+                                    sender.sendMessage("  ");
+                                }
+                            }
+                        });
+                    }, 10);
+                }
+            }
+        });
+    }
 
-										sender.sendMessage(" ");
-										sender.sendMessage(MESSAGE_LOADER.getMessage("place.done", "place.done"));
-									}
-								});
-							}
-						}, 10);
-					}
-				});
-			}
-		}, 5);
-	}
+    @Command(name = "frameclickremove",
+            aliases = {
+                    "afremoveclick"
+            },
+            usage = "<Name>",
+            description = "Removes a click event",
+            min = 1,
+            max = 1,
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.click.remove")
+    public void frameClickRemove(final Player sender, final String name)
+    {
+        if (!plugin.frameManager.doesFrameExist(name))
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("click.error.notFound", "click.error.notFound"));
+            return;
+        }
+        AnimatedFrame frame = plugin.frameManager.getFrame(name);
 
-	boolean checkImageType(String url) {
-		return url.endsWith(".png") || url.endsWith(".gif") || url.endsWith(".jpg") || url.endsWith(".jpeg");
-	}
 
+        sender.sendMessage("  ");
+        sender.sendMessage(MESSAGE_LOADER.getMessage("click.remove", "click.remove"));
+        plugin.interactListener.listenForMapInteract(sender, event ->
+        {
+            if (event != null)
+            {
+                CursorPosition.CursorMapQueryResult pos = CursorPosition.findMenuByCursor(event.getPlayer(), Collections.singleton(frame));
+                if (pos.isFound())
+                {
+                    Optional<org.inventivetalent.animatedframes.clickable.ClickEvent> ev = frame.clickEvents.stream().filter(e -> e.contains(pos.getPosition().getX(), pos.getPosition().getY())).findFirst();
+                    if (ev.isPresent())
+                    {
+                        frame.clickEvents.remove(ev.get());
+                        plugin.frameManager.writeToFile(frame);
+                        plugin.frameManager.writeIndexToFile();
+
+                        sender.sendMessage(MESSAGE_LOADER.getMessage("click.removed", "click.removed"));
+                        sender.sendMessage("  ");
+                    }
+                }
+            }
+        });
+    }
+
+    @Command(name = "placeframes",
+            aliases = {
+                    "afplace",
+                    "frameplace",
+                    "generateframes",
+                    "afp",
+                    "afg"
+            },
+            usage = "",
+            description = "Place item frames",
+            fallbackPrefix = "animatedframes")
+    @Permission("animatedframes.place")
+    public void placeFrames(final Player sender)
+    {
+        sender.sendMessage("  ");
+        Bukkit.getScheduler().runTaskLater(plugin, () ->
+        {
+            sender.sendMessage(MESSAGE_LOADER.getMessage("place.first", "place.first"));
+            plugin.interactListener.listenForInteract(sender, event ->
+            {
+                final Block firstBlock = event.getClickedBlock();
+                final BlockFace firstFace = event.getBlockFace();
+                sender.sendMessage(MESSAGE_LOADER.getMessage("place.set.first", "place.set.first"));
+
+                Bukkit.getScheduler().runTaskLater(plugin, () ->
+                {
+                    sender.sendMessage("  ");
+                    sender.sendMessage(MESSAGE_LOADER.getMessage("place.second", "place.second"));
+                    plugin.interactListener.listenForInteract(sender, event1 ->
+                    {
+                        final Block secondBlock = event1.getClickedBlock();
+                        final BlockFace secondFace = event1.getBlockFace();
+                        sender.sendMessage(MESSAGE_LOADER.getMessage("place.set.second", "place.set.second"));
+
+                        if (firstFace != secondFace)
+                        {
+                            sender.sendMessage(MESSAGE_LOADER.getMessage("place.error.face", "place.error.face"));
+                            return;
+                        }
+
+                        for (int x = firstBlock.getX(); x <= secondBlock.getX(); x++)
+                        {
+                            for (int y = firstBlock.getY(); y <= secondBlock.getY(); y++)
+                            {
+                                for (int z = firstBlock.getZ(); z <= secondBlock.getZ(); z++)
+                                {
+                                    Location location = new Location(firstBlock.getWorld(), x, y, z);
+                                    location = location.getBlock().getRelative(secondFace).getLocation();
+                                    ItemFrame frame = location.getWorld().spawn(location, ItemFrame.class);
+                                    frame.setFacingDirection(secondFace.getOppositeFace());
+                                }
+                            }
+                        }
+
+                        sender.sendMessage(" ");
+                        sender.sendMessage(MESSAGE_LOADER.getMessage("place.done", "place.done"));
+                    });
+                }, 10);
+            });
+        }, 5);
+    }
+
+    boolean checkImageType(String url)
+    {
+        return url.endsWith(".png") || url.endsWith(".gif") || url.endsWith(".jpg") || url.endsWith(".jpeg");
+    }
 }

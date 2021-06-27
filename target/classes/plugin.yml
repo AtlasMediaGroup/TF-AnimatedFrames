@@ -1,0 +1,6 @@
+name: AnimatedFrames
+main: org.inventivetalent.animatedframes.AnimatedFramesPlugin
+author: inventivetalent
+version: 4.13.2-TF
+
+softdepend: [PacketListenerApi, MapManager]

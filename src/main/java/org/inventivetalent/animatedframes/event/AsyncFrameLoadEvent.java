@@ -34,33 +34,38 @@ import org.inventivetalent.animatedframes.AnimatedFrame;
 
 import java.io.File;
 
-public class AsyncFrameLoadEvent extends Event {
+public class AsyncFrameLoadEvent extends Event
+{
 
-	private File          file;
-	private AnimatedFrame frame;
+    private static HandlerList handlerList = new HandlerList();
+    private File file;
+    private AnimatedFrame frame;
 
-	public AsyncFrameLoadEvent(File file, AnimatedFrame frame) {
-		super(true);
-		this.file = file;
-		this.frame = frame;
-	}
+    public AsyncFrameLoadEvent(File file, AnimatedFrame frame)
+    {
+        super(true);
+        this.file = file;
+        this.frame = frame;
+    }
 
-	public File getFile() {
-		return file;
-	}
+    public static HandlerList getHandlerList()
+    {
+        return handlerList;
+    }
 
-	public AnimatedFrame getFrame() {
-		return frame;
-	}
+    public File getFile()
+    {
+        return file;
+    }
 
-	private static HandlerList handlerList = new HandlerList();
+    public AnimatedFrame getFrame()
+    {
+        return frame;
+    }
 
-	@Override
-	public HandlerList getHandlers() {
-		return handlerList;
-	}
-
-	public static HandlerList getHandlerList() {
-		return handlerList;
-	}
+    @Override
+    public HandlerList getHandlers()
+    {
+        return handlerList;
+    }
 }

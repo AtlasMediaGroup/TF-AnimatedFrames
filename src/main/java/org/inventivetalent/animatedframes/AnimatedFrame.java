@@ -64,439 +64,572 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.util.*;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Objects;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 @Data
 @ToString(doNotUseGetters = true,
-		  callSuper = true)
-public class AnimatedFrame extends BaseFrameMapAbstract implements Runnable, Clickable {
+        callSuper = true)
+public class AnimatedFrame extends BaseFrameMapAbstract implements Runnable, Clickable
+{
 
-	static final int[][] NULL_INT_ARRAY = new int[0][0];
+    static final int[][] NULL_INT_ARRAY = new int[0][0];
+    private final Object worldPlayersLock = new Object[0];
+    @Expose
+    public UUID creator;
+    @Expose
+    public JsonObject meta = new JsonObject();
+    @Expose
+    public Set<ClickEvent> clickEvents = new HashSet<>();
+    public Callback<Void> startCallback;
+    protected int[][] itemFrameIds = NULL_INT_ARRAY;
+    @Expose
+    protected UUID[][] itemFrameUUIDs;
+    protected int delayTicks = 0;
+    @Expose
+    private String name;
+    @Expose
+    private String imageSource;
+    /* Block width, to be multiplied by 128 */
+    @Expose
+    private int width;
+    @Expose
+    private int height;
+    private int length;
+    private int[] frameDelays = new int[0];
+    private MapWrapper[] mapWrappers;
+    private Set<UUID> worldPlayers = Collections.newSetFromMap(new ConcurrentHashMap<>());
+    private AnimatedFramesPlugin plugin = (AnimatedFramesPlugin) Bukkit.getPluginManager().getPlugin("AnimatedFrames");
+    private boolean imageLoaded = false;
+    private boolean playing = false;
+    private int currentFrame = 0;
+    private long timeSinceLastRefresh = 950;
 
-	@Expose private String name;
-	@Expose private String imageSource;
+    AnimatedFrame()
+    {
+        super();
+    }
 
-	/* Block width, to be multiplied by 128 */
-	@Expose private int width;
-	@Expose private int height;
-	private         int length;
+    public AnimatedFrame(ItemFrame baseFrame, Vector3DDouble firstCorner, Vector3DDouble secondCorner, String name, String imageSource, int width, int height)
+    {
+        super(baseFrame, firstCorner, secondCorner);
+        this.name = name;
+        this.imageSource = imageSource;
+        this.width = width;
+        this.height = height;
+    }
 
-	@Expose public UUID creator;
+    public AnimatedFrame(ItemFrame baseFrame, Vector3DDouble firstCorner, Vector3DDouble secondCorner, String name, String imageSource)
+    {
+        super(baseFrame, firstCorner, secondCorner);
+        this.name = name;
+        this.imageSource = imageSource;
+        this.width = getBlockWidth();
+        this.height = getBlockHeight();
+    }
 
-	@Expose public JsonObject meta = new JsonObject();
+    @Override
+    public void run()
+    {
+        try
+        {
+            if (!imageLoaded)
+            {
+                MapManager mapManager = ((MapManagerPlugin) Bukkit.getPluginManager().getPlugin("MapManager")).getMapManager();
+                try
+                {
+                    File cacheDir = new File(new File(plugin.getDataFolder(), "cache"), this.name);
+                    if (!cacheDir.exists())
+                    {
+                        cacheDir.mkdirs();
 
-	@Expose public Set<ClickEvent> clickEvents = new HashSet<>();
+                        plugin.getLogger().info("Generating image data for " + getName() + "...");
 
-	protected         int[][]      itemFrameIds = NULL_INT_ARRAY;
-	@Expose protected UUID[][]     itemFrameUUIDs;
-	private           int[]        frameDelays  = new int[0];
-	private           MapWrapper[] mapWrappers;
+                        File file = plugin.frameManager.downloadOrGetImage(this.imageSource);
+                        GifDecoder decoder = new GifDecoder();
+                        decoder.read(new FileInputStream(file));
 
-	protected int delayTicks = 0;
+                        if ((this.length = decoder.getFrameCount()) <= 0)
+                        {
+                            plugin.getLogger().info("Animation length for '" + getName() + "' is zero. Creating non-animated image.");
+                            this.length = 1;
 
-	private final Object    worldPlayersLock = new Object[0];
-	private       Set<UUID> worldPlayers     = Collections.newSetFromMap(new ConcurrentHashMap<UUID, Boolean>());
+                            BufferedImage image = ImageIO.read(file);
+                            if (image == null)
+                            {
+                                throw new RuntimeException("Failed to read the given image. Please make sure you're using a valid source");
+                            }
+                            image = scaleImage(image);
+                            MapWrapper mapWrapper = mapManager.wrapMultiImage(image, this.height, this.width);
+                            this.frameDelays = new int[]{500};
+                            this.mapWrappers = new MapWrapper[]{mapWrapper};
+                            image.flush();
 
-	private AnimatedFramesPlugin plugin       = (AnimatedFramesPlugin) Bukkit.getPluginManager().getPlugin("AnimatedFrames");
-	private boolean              imageLoaded  = false;
-	private boolean              playing      = false;
-	private int                  currentFrame = 0;
+                            File cacheFile = new File(cacheDir, this.name + "_0.afc");
+                            cacheFile.createNewFile();
+                            try (FileOutputStream out = new FileOutputStream(cacheFile))
+                            {
+                                out.write(Ints.toByteArray(500));
+                                ArrayImage.writeMultiToSream(((MultiWrapper) mapWrapper).getMultiContent(), out);
+                            }
+                        }
+                        else
+                        {
+                            this.frameDelays = new int[this.length];
+                            this.mapWrappers = new MapWrapper[this.length];
+                            for (int i = 0; i < this.length; i++)
+                            {
+                                plugin.getLogger().info("Generating Frame " + (i + 1) + "/" + this.length + " for " + getName() + "...");
 
-	public Callback<Void> startCallback;
+                                BufferedImage image = scaleImage(decoder.getFrame(i));
+                                int delay = decoder.getDelay(i);
+                                if (delay == 0)
+                                {
+                                    plugin.getLogger().warning("Frame has no delay information, falling back to default (" + plugin.defaultDelay + ")");
+                                    delay = plugin.defaultDelay;
+                                }
+                                this.frameDelays[i] = delay;
+                                MapWrapper wrapper = mapManager.wrapMultiImage(image, this.height, this.width);
+                                this.mapWrappers[i] = wrapper;
+                                image.flush();
 
-	private long timeSinceLastRefresh = 950;
+                                File cacheFile = new File(cacheDir, this.name + "_" + i + ".afc");
+                                cacheFile.createNewFile();
+                                try (FileOutputStream out = new FileOutputStream(cacheFile))
+                                {
+                                    out.write(Ints.toByteArray(delay));
+                                    ArrayImage.writeMultiToSream(((MultiWrapper) wrapper).getMultiContent(), out);
+                                }
+                            }
+                        }
 
-	AnimatedFrame() {
-		super();
-	}
+                        // Reset all images
+                        for (GifDecoder.GifFrame object : decoder.frames)
+                        {
+                            object.image.flush();
+                        }
+                        decoder.frames.clear();
 
-	public AnimatedFrame(ItemFrame baseFrame, Vector3DDouble firstCorner, Vector3DDouble secondCorner, String name, String imageSource, int width, int height) {
-		super(baseFrame, firstCorner, secondCorner);
-		this.name = name;
-		this.imageSource = imageSource;
-		this.width = width;
-		this.height = height;
-	}
+                    }
+                    else
+                    {
+                        plugin.getLogger().info("Reading " + getName() + " from cache...");
 
-	public AnimatedFrame(ItemFrame baseFrame, Vector3DDouble firstCorner, Vector3DDouble secondCorner, String name, String imageSource) {
-		super(baseFrame, firstCorner, secondCorner);
-		this.name = name;
-		this.imageSource = imageSource;
-		this.width = getBlockWidth();
-		this.height = getBlockHeight();
-	}
+                        String[] fileList = cacheDir.list();
+                        this.length = fileList.length;
+                        this.frameDelays = new int[this.length];
+                        this.mapWrappers = new MapWrapper[this.length];
 
-	@Override
-	public void run() {
-		try {
-			if (!imageLoaded) {
-				MapManager mapManager = ((MapManagerPlugin) Bukkit.getPluginManager().getPlugin("MapManager")).getMapManager();
-				try {
-					File cacheDir = new File(new File(plugin.getDataFolder(), "cache"), this.name);
-					if (!cacheDir.exists()) {
-						cacheDir.mkdirs();
+                        for (int i = 0; i < this.length; i++)
+                        {
+                            plugin.getLogger().info("Reading Frame " + (i + 1) + "/" + this.length + " of " + getName() + "...");
 
-						plugin.getLogger().info("Generating image data for " + getName() + "...");
+                            File cacheFile = new File(cacheDir, this.name + "_" + i + ".afc");
+                            cacheFile.createNewFile();
+                            try (FileInputStream in = new FileInputStream(cacheFile))
+                            {
+                                byte[] lengthBytes = new byte[4];
+                                in.read(lengthBytes, 0, 4);
+                                this.frameDelays[i] = Ints.fromByteArray(lengthBytes);
 
-						File file = plugin.frameManager.downloadOrGetImage(this.imageSource);
-						GifDecoder decoder = new GifDecoder();
-						decoder.read(new FileInputStream(file));
+                                ArrayImage[][] images = ArrayImage.readMultiFromStream(in);
+                                this.mapWrappers[i] = mapManager.wrapMultiImage(images);
+                            }
+                            catch (IOException readE)
+                            {
+                                throw new RuntimeException("Your cached frame data appears to be invalid. Please delete the plugins/AnimatedFrames/cache directory and restart your server", readE);
+                            }
+                        }
+                    }
 
-						if ((this.length = decoder.getFrameCount()) <= 0) {
-							plugin.getLogger().info("Animation length for '" + getName() + "' is zero. Creating non-animated image.");
-							this.length = 1;
+                    imageLoaded = true;
+                }
+                catch (IOException e)
+                {
+                    plugin.getLogger().log(Level.SEVERE, "Failed to load image '" + getName() + "'", e);
+                    throw new RuntimeException("Failed to load image");
+                }
+            }
 
-							BufferedImage image = ImageIO.read(file);
-							if (image == null) {
-								throw new RuntimeException("Failed to read the given image. Please make sure you're using a valid source");
-							}
-							image = scaleImage(image);
-							MapWrapper mapWrapper = mapManager.wrapMultiImage(image, this.height, this.width);
-							this.frameDelays = new int[] { 500 };
-							this.mapWrappers = new MapWrapper[] { mapWrapper };
-							image.flush();
+            while (!this.playing)
+            {
+                try
+                {
+                    Thread.sleep(1000);
+                }
+                catch (InterruptedException e)
+                {
+                    plugin.getLogger().warning("playing-delay for '" + getName() + "' has been interrupted");
+                    return;
+                }
+            }
 
-							File cacheFile = new File(cacheDir, this.name + "_0.afc");
-							cacheFile.createNewFile();
-							try (FileOutputStream out = new FileOutputStream(cacheFile)) {
-								out.write(Ints.toByteArray(500));
-								ArrayImage.writeMultiToSream(((MultiWrapper) mapWrapper).getMultiContent(), out);
-							}
-						} else {
-							this.frameDelays = new int[this.length];
-							this.mapWrappers = new MapWrapper[this.length];
-							for (int i = 0; i < this.length; i++) {
-								plugin.getLogger().info("Generating Frame " + (i + 1) + "/" + this.length + " for " + getName() + "...");
+            if (AnimatedFramesPlugin.synchronizedStart)
+            {
+                while (System.currentTimeMillis() < AnimatedFramesPlugin.synchronizedTime)
+                {
+                    try
+                    {
+                        Thread.sleep(1);
+                    }
+                    catch (InterruptedException e)
+                    {
+                        plugin.getLogger().warning("synchronized start delay for '" + getName() + "' has been interrupted");
+                        return;
+                    }
+                }
+            }
 
-								BufferedImage image = scaleImage(decoder.getFrame(i));
-								int delay = decoder.getDelay(i);
-								if (delay == 0) {
-									plugin.getLogger().warning("Frame has no delay information, falling back to default (" + plugin.defaultDelay + ")");
-									delay = plugin.defaultDelay;
-								}
-								this.frameDelays[i] = delay;
-								MapWrapper wrapper = mapManager.wrapMultiImage(image, this.height, this.width);
-								this.mapWrappers[i] = wrapper;
-								image.flush();
+            while (this.playing && this.plugin.isEnabled())
+            {
+                if (startCallback != null)
+                {
+                    startCallback.call(null);
+                    startCallback = null;
+                }
 
-								File cacheFile = new File(cacheDir, this.name + "_" + i + ".afc");
-								cacheFile.createNewFile();
-								try (FileOutputStream out = new FileOutputStream(cacheFile)) {
-									out.write(Ints.toByteArray(delay));
-									ArrayImage.writeMultiToSream(((MultiWrapper) wrapper).getMultiContent(), out);
-								}
-							}
-						}
+                if (timeSinceLastRefresh++ > 10000)
+                {
+                    timeSinceLastRefresh = 0;
+                    refresh();
+                }
+                if (delayTicks++ >= this.frameDelays[this.currentFrame])
+                {
+                    delayTicks = 0;
+                    if (Bukkit.getOnlinePlayers().isEmpty())
+                    {
+                        try
+                        {
+                            Thread.sleep(2000);
+                        }
+                        catch (InterruptedException e)
+                        {
+                            plugin.getLogger().warning("Animation thread for " + getName() + " interrupted");
+                        }
+                        continue;
+                    }
 
-						// Reset all images
-						for (Object object : decoder.frames) {
-							((GifDecoder.GifFrame) object).image.flush();
-						}
-						decoder.frames.clear();
+                    displayCurrentFrame();
 
-					} else {
-						plugin.getLogger().info("Reading " + getName() + " from cache...");
+                    this.currentFrame++;
+                    if (this.currentFrame >= this.length)
+                    {
+                        this.currentFrame = 0;
+                    }
+                }
+                try
+                {
+                    Thread.sleep(1);
+                }
+                catch (InterruptedException e)
+                {
+                    plugin.getLogger().log(Level.WARNING, "Frame interrupted", e);
+                }
 
-						String[] fileList = cacheDir.list();
-						this.length = fileList.length;
-						this.frameDelays = new int[this.length];
-						this.mapWrappers = new MapWrapper[this.length];
+            }
+        }
+        catch (Throwable e)
+        {
+            throw new RuntimeException("Unexpected exception in AnimatedFrame " + name, e);
+        }
+    }
 
-						for (int i = 0; i < this.length; i++) {
-							plugin.getLogger().info("Reading Frame " + (i + 1) + "/" + this.length + " of " + getName() + "...");
+    private void displayCurrentFrame()
+    {
+        MultiMapController controller = ((MultiMapController) this.mapWrappers[this.currentFrame].getController());
+        for (Iterator<UUID> iterator = this.worldPlayers.iterator(); iterator.hasNext(); )
+        {
+            OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(iterator.next());
+            Player player = offlinePlayer.getPlayer();
+            if (player != null)
+            {
+                if (player.getWorld().getName().equals(worldName))
+                {
+                    if (player.getLocation().distanceSquared(baseVector.toBukkitLocation(getWorld())) < plugin.maxAnimateDistanceSquared)
+                    {
+                        controller.showInFrames(player.getPlayer(), this.itemFrameIds);
+                    }
+                }
+            }
+            else
+            {
+                iterator.remove();
+                for (MapWrapper wrapper : this.mapWrappers)
+                {
+                    wrapper.getController().removeViewer(offlinePlayer);
+                }
+            }
+        }
+    }
 
-							File cacheFile = new File(cacheDir, this.name + "_" + i + ".afc");
-							cacheFile.createNewFile();
-							try (FileInputStream in = new FileInputStream(cacheFile)) {
-								byte[] lengthBytes = new byte[4];
-								in.read(lengthBytes, 0, 4);
-								this.frameDelays[i] = Ints.fromByteArray(lengthBytes);
+    public void goToFrameAndDisplay(int frame)
+    {
+        if (frame < 0)
+        {
+            throw new IllegalArgumentException("frame must be >= 0");
+        }
+        if (frame > this.length)
+        {
+            throw new IllegalArgumentException("frame can't be higher than the animation length");
+        }
+        this.currentFrame = frame;
+        displayCurrentFrame();
+    }
 
-								ArrayImage[][] images = ArrayImage.readMultiFromStream(in);
-								this.mapWrappers[i] = mapManager.wrapMultiImage(images);
-							} catch (IOException readE) {
-								throw new RuntimeException("Your cached frame data appears to be invalid. Please delete the plugins/AnimatedFrames/cache directory and restart your server", readE);
-							}
-						}
-					}
+    BufferedImage scaleImage(BufferedImage original)
+    {
+        int type = original.getType();
+        if (plugin.fixImageTypes)
+        {
+            if (type == 0)
+            {
+                type = 5;
+            }
+        }
 
-					imageLoaded = true;
-				} catch (IOException e) {
-					plugin.getLogger().log(Level.SEVERE, "Failed to load image '" + getName() + "'", e);
-					throw new RuntimeException("Failed to load image");
-				}
-			}
+        BufferedImage scaledImage = new BufferedImage(128 * this.width, 128 * this.height, type);
+        Graphics scaledGraphics = scaledImage.getGraphics();
 
-			while (!this.playing) {
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e) {
-					plugin.getLogger().warning("playing-delay for '" + getName() + "' has been interrupted");
-					return;
-				}
-			}
+        Image instance = original.getScaledInstance(128 * this.width, 128 * this.height, Image.SCALE_FAST);
+        scaledGraphics.drawImage(instance, 0, 0, null);
 
-			if (AnimatedFramesPlugin.synchronizedStart) {
-				while (System.currentTimeMillis() < AnimatedFramesPlugin.synchronizedTime) {
-					try {
-						Thread.sleep(1);
-					} catch (InterruptedException e) {
-						plugin.getLogger().warning("synchronized start delay for '" + getName() + "' has been interrupted");
-						return;
-					}
-				}
-			}
+        instance.flush();
+        scaledGraphics.dispose();
+        return scaledImage;
+    }
 
-			while (this.playing && this.plugin.isEnabled()) {
-				if (startCallback != null) {
-					startCallback.call(null);
-					startCallback = null;
-				}
+    public void refresh()
+    {
+        refreshFrames();
+    }
 
-				if (timeSinceLastRefresh++ > 10000) {
-					timeSinceLastRefresh = 0;
-					refresh();
-				}
-				if (delayTicks++ >= this.frameDelays[this.currentFrame]) {
-					delayTicks = 0;
-					if (Bukkit.getOnlinePlayers().isEmpty()) {
-						try {
-							Thread.sleep(2000);
-						} catch (InterruptedException e) {
-							plugin.getLogger().warning("Animation thread for " + getName() + " interrupted");
-						}
-						continue;
-					}
+    public void addViewer(Player player)
+    {
+        if (this.mapWrappers != null)
+        {
+            for (MapWrapper wrapper : mapWrappers)
+            {
+                if (wrapper == null)
+                {
+                    plugin.getLogger().warning("Null-element in MapWrapper array of " + getName());
+                    continue;
+                }
+                MapController controller = wrapper.getController();
+                controller.addViewer(player);
+                controller.sendContent(player);
+            }
+        }
+        synchronized (this.worldPlayersLock)
+        {
+            this.worldPlayers.add(player.getUniqueId());
+        }
+    }
 
-					displayCurrentFrame();
+    public void removeViewer(OfflinePlayer player)
+    {
+        boolean empty;
+        synchronized (this.worldPlayersLock)
+        {
+            this.worldPlayers.remove(player.getUniqueId());
+            empty = this.worldPlayers.isEmpty();
+        }
+        if (this.mapWrappers != null)
+        {
+            for (MapWrapper wrapper : mapWrappers)
+            {
+                if (wrapper == null)
+                {
+                    plugin.getLogger().warning("Null-element in MapWrapper array of " + getName());
+                    continue;
+                }
+                MapController controller = wrapper.getController();
+                if (empty)
+                {
+                    controller.clearViewers();
+                }
+                else
+                {
+                    controller.removeViewer(player);
+                }
+            }
+        }
+    }
 
-					this.currentFrame++;
-					if (this.currentFrame >= this.length) { this.currentFrame = 0; }
-				}
-				try {
-					Thread.sleep(1);
-				} catch (InterruptedException e) {
-					plugin.getLogger().log(Level.WARNING, "Frame interrupted", e);
-				}
+    public void refreshFrames()
+    {
+        if (!plugin.isEnabled())
+        {
+            return;
+        }
+        Bukkit.getScheduler().runTask(plugin, () ->
+        {
+            TimingsHelper.startTiming("AnimatedFrames - [" + getName() + "] refreshItemFrames");
 
-			}
-		} catch (Throwable e) {
-			throw new RuntimeException("Unexpected exception in AnimatedFrame " + name, e);
-		}
-	}
+            final World world = getWorld();
+            if (world == null || world.getPlayers().isEmpty())
+            {
+                itemFrameIds = NULL_INT_ARRAY;
+            }
+            else
+            {
+                itemFrameIds = new int[width][height];
+                itemFrameUUIDs = new UUID[width][height];
 
-	private void displayCurrentFrame() {
-		MultiMapController controller = ((MultiMapController) this.mapWrappers[this.currentFrame].getController());
-		for (Iterator<UUID> iterator = this.worldPlayers.iterator(); iterator.hasNext(); ) {
-			OfflinePlayer offlinePlayer = Bukkit.getOfflinePlayer(iterator.next());
-			Player player = offlinePlayer != null ? offlinePlayer.getPlayer() : null;
-			if (player != null) {
-				if (player.getWorld().getName().equals(worldName)) {
-					if (player.getLocation().distanceSquared(baseVector.toBukkitLocation(getWorld())) < plugin.maxAnimateDistanceSquared) {
-						controller.showInFrames(player.getPlayer(), this.itemFrameIds);
-					}
-				}
-			} else {
-				iterator.remove();
-				if (offlinePlayer != null) {
-					for (MapWrapper wrapper : this.mapWrappers) {
-						wrapper.getController().removeViewer(offlinePlayer);
-					}
-				}
-			}
-		}
-	}
+                Vector2DDouble startVector = minCorner2d;
 
-	public void goToFrameAndDisplay(int frame) {
-		if (frame < 0) { throw new IllegalArgumentException("frame must be >= 0"); }
-		if (frame > this.length) { throw new IllegalArgumentException("frame can't be higher than the animation length"); }
-		this.currentFrame = frame;
-		displayCurrentFrame();
-	}
+                Collection<? extends Entity> entities;
+                if (Minecraft.MINECRAFT_VERSION.olderThan(Minecraft.Version.v1_8_R2))
+                {
+                    entities = world.getEntitiesByClass(ItemFrame.class);
+                }
+                else
+                {
+                    int size = Math.max(width, height);
+                    entities = world.getNearbyEntities(baseVector.toBukkitLocation(world), size, size, size);
+                }
+                for (Entity entity : entities)
+                {
+                    if (entity instanceof ItemFrame)
+                    {
+                        if (entity.getFacing() == facing.getFrameDirection())
+                        {
+                            if (boundingBox.expand(0.1).contains(new Vector3DDouble(entity.getLocation())))
+                            {
+                                for (int y1 = 0; y1 < getBlockHeight(); y1++)
+                                {
+                                    for (int x1 = 0; x1 < getBlockWidth(); x1++)
+                                    {
+                                        int x = facing.isHorizontalModInverted() ? (getBlockWidth() - 1 - x1) : x1;
+                                        int y = facing.isVerticalModInverted() ? (getBlockHeight() - 1 - y1) : y1;
+                                        Vector3DDouble vector3d = facing.getPlane().to3D(startVector.add(x, y), baseVector.getX(), baseVector.getZ(), baseVector.getY());
+                                        if (entity.getLocation().getBlockZ() == vector3d.getZ().intValue())
+                                        {
+                                            if (entity.getLocation().getBlockX() == vector3d.getX().intValue())
+                                            {
+                                                if (entity.getLocation().getBlockY() == vector3d.getY().intValue())
+                                                {
+                                                    itemFrameIds[x1][y1] = entity.getEntityId();
+                                                    itemFrameUUIDs[x1][y1] = entity.getUniqueId();
 
-	BufferedImage scaleImage(BufferedImage original) {
-		int type = original.getType();
-		if (plugin.fixImageTypes) {
-			if (type == 0) {
-				type = 5;
-			}
-		}
+                                                    entity.setMetadata("ANIMATED_FRAMES_META", new FixedMetadataValue(plugin, AnimatedFrame.this));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            TimingsHelper.stopTiming("AnimatedFrames - [" + getName() + "] refreshItemFrames");
+        });
+    }
 
-		BufferedImage scaledImage = new BufferedImage(128 * this.width, 128 * this.height, type);
-		Graphics scaledGraphics = scaledImage.getGraphics();
+    public void clearFrames()
+    {
+        if (this.mapWrappers != null)
+        {
+            for (MapWrapper wrapper : this.mapWrappers)
+            {
+                for (UUID uuid : worldPlayers)
+                {
+                    Player player = Bukkit.getPlayer(uuid);
+                    if (player != null)
+                    {
+                        ((MultiMapController) wrapper.getController()).clearFrames(player, this.itemFrameIds);
+                    }
+                }
+                wrapper.getController().clearViewers();
+            }
+            for (int[] iA : this.itemFrameIds)
+            {
+                for (int i : iA)
+                {
+                    ItemFrame itemFrame = MapManagerPlugin.getItemFrameById(getWorld(), i);
+                    if (itemFrame != null)
+                    {
+                        itemFrame.removeMetadata("ANIMATED_FRAMES_META", plugin);
+                    }
+                }
+            }
+        }
+    }
 
-		Image instance = original.getScaledInstance(128 * this.width, 128 * this.height, Image.SCALE_FAST);
-		scaledGraphics.drawImage(instance, 0, 0, null);
+    protected MapWrapper[] getWrappers()
+    {
+        return this.mapWrappers;
+    }
 
-		instance.flush();
-		scaledGraphics.dispose();
-		return scaledImage;
-	}
+    protected void setContent(MapWrapper[] wrappers, int[] delays)
+    {
+        this.length = wrappers.length;
+        this.frameDelays = delays;
+        this.currentFrame = Math.min(this.currentFrame, this.length - 1);
+        this.mapWrappers = wrappers;
+    }
 
-	public void refresh() {
-		refreshFrames();
-	}
+    @Override
+    public boolean isClickable()
+    {
+        return !this.clickEvents.isEmpty();
+    }
 
-	public void addViewer(Player player) {
-		if (this.mapWrappers != null) {
-			for (MapWrapper wrapper : mapWrappers) {
-				if (wrapper == null) {
-					plugin.getLogger().warning("Null-element in MapWrapper array of " + getName());
-					continue;
-				}
-				MapController controller = wrapper.getController();
-				controller.addViewer(player);
-				controller.sendContent(player);
-			}
-		}
-		synchronized (this.worldPlayersLock) {
-			this.worldPlayers.add(player.getUniqueId());
-		}
-	}
+    @Override
+    public void handleClick(Player player, CursorPosition position, int action)
+    {
+        this.clickEvents.stream().filter(e -> e.contains(position.x, position.y)).forEach(e -> e.executeFor(player, this.plugin));
+    }
 
-	public void removeViewer(OfflinePlayer player) {
-		boolean empty;
-		synchronized (this.worldPlayersLock) {
-			this.worldPlayers.remove(player.getUniqueId());
-			empty = this.worldPlayers.isEmpty();
-		}
-		if (this.mapWrappers != null) {
-			for (MapWrapper wrapper : mapWrappers) {
-				if (wrapper == null) {
-					plugin.getLogger().warning("Null-element in MapWrapper array of " + getName());
-					continue;
-				}
-				MapController controller = wrapper.getController();
-				if (empty) {
-					controller.clearViewers();
-				} else {
-					controller.removeViewer(player);
-				}
-			}
-		}
-	}
+    @Override
+    public boolean equals(Object o)
+    {
+        if (this == o)
+        {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass())
+        {
+            return false;
+        }
+        if (!super.equals(o))
+        {
+            return false;
+        }
 
-	public void refreshFrames() {
-		if (!plugin.isEnabled()) { return; }
-		Bukkit.getScheduler().runTask(plugin, new Runnable() {
-			@Override
-			public void run() {
-				TimingsHelper.startTiming("AnimatedFrames - [" + getName() + "] refreshItemFrames");
+        AnimatedFrame frame = (AnimatedFrame) o;
 
-				final World world = getWorld();
-				if (world == null || world.getPlayers().isEmpty()) {
-					itemFrameIds = NULL_INT_ARRAY;
-				} else {
-					itemFrameIds = new int[width][height];
-					itemFrameUUIDs = new UUID[width][height];
+        if (width != frame.width)
+        {
+            return false;
+        }
+        if (height != frame.height)
+        {
+            return false;
+        }
+        if (!Objects.equals(name, frame.name))
+        {
+            return false;
+        }
+        return Objects.equals(imageSource, frame.imageSource);
 
-					Vector2DDouble startVector = minCorner2d;
+    }
 
-					Collection<? extends Entity> entities;
-					if (Minecraft.VERSION.olderThan(Minecraft.Version.v1_8_R2)) {
-						entities = world.getEntitiesByClass(ItemFrame.class);
-					} else {
-						int size = Math.max(width, height);
-						entities = world.getNearbyEntities(baseVector.toBukkitLocation(world), size, size, size);
-					}
-					for (Entity entity : entities) {
-						if (entity instanceof ItemFrame) {
-							if (((ItemFrame) entity).getFacing() == facing.getFrameDirection()) {
-								if (boundingBox.expand(0.1).contains(new Vector3DDouble(entity.getLocation()))) {
-									for (int y1 = 0; y1 < getBlockHeight(); y1++) {
-										for (int x1 = 0; x1 < getBlockWidth(); x1++) {
-											int x = facing.isHorizontalModInverted() ? (getBlockWidth() - 1 - x1) : x1;
-											int y = facing.isVerticalModInverted() ? (getBlockHeight() - 1 - y1) : y1;
-											Vector3DDouble vector3d = facing.getPlane().to3D(startVector.add(x, y), baseVector.getX(), baseVector.getZ(), baseVector.getY());
-											if (entity.getLocation().getBlockZ() == vector3d.getZ().intValue()) {
-												if (entity.getLocation().getBlockX() == vector3d.getX().intValue()) {
-													if (entity.getLocation().getBlockY() == vector3d.getY().intValue()) {
-														itemFrameIds[x1][y1] = entity.getEntityId();
-														itemFrameUUIDs[x1][y1] = entity.getUniqueId();
-
-														entity.setMetadata("ANIMATED_FRAMES_META", new FixedMetadataValue(plugin, AnimatedFrame.this));
-													}
-												}
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-				TimingsHelper.stopTiming("AnimatedFrames - [" + getName() + "] refreshItemFrames");
-			}
-		});
-	}
-
-	public void clearFrames() {
-		if (this.mapWrappers != null) {
-			for (MapWrapper wrapper : this.mapWrappers) {
-				for (UUID uuid : worldPlayers) {
-					Player player = Bukkit.getPlayer(uuid);
-					if (player != null) {
-						((MultiMapController) wrapper.getController()).clearFrames(player, this.itemFrameIds);
-					}
-				}
-				wrapper.getController().clearViewers();
-			}
-			for (int[] iA : this.itemFrameIds) {
-				for (int i : iA) {
-					ItemFrame itemFrame = MapManagerPlugin.getItemFrameById(getWorld(), i);
-					if (itemFrame != null) {
-						itemFrame.removeMetadata("ANIMATED_FRAMES_META", plugin);
-					}
-				}
-			}
-		}
-	}
-
-	protected MapWrapper[] getWrappers() {
-		return this.mapWrappers;
-	}
-
-	protected void setContent(MapWrapper[] wrappers, int[] delays) {
-		this.length = wrappers.length;
-		this.frameDelays = delays;
-		this.currentFrame = Math.min(this.currentFrame, this.length - 1);
-		this.mapWrappers = wrappers;
-	}
-
-	@Override
-	public boolean isClickable() {
-		return !this.clickEvents.isEmpty();
-	}
-
-	@Override
-	public void handleClick(Player player, CursorPosition position, int action) {
-		this.clickEvents.stream().filter(e -> e.contains(position.x, position.y)).forEach(e -> e.executeFor(player, this.plugin));
-	}
-
-	@Override
-	public boolean equals(Object o) {
-		if (this == o) { return true; }
-		if (o == null || getClass() != o.getClass()) { return false; }
-		if (!super.equals(o)) { return false; }
-
-		AnimatedFrame frame = (AnimatedFrame) o;
-
-		if (width != frame.width) { return false; }
-		if (height != frame.height) { return false; }
-		if (name != null ? !name.equals(frame.name) : frame.name != null) { return false; }
-		return imageSource != null ? imageSource.equals(frame.imageSource) : frame.imageSource == null;
-
-	}
-
-	@Override
-	public int hashCode() {
-		int result = super.hashCode();
-		result = 31 * result + (name != null ? name.hashCode() : 0);
-		result = 31 * result + (imageSource != null ? imageSource.hashCode() : 0);
-		result = 31 * result + width;
-		result = 31 * result + height;
-		return result;
-	}
+    @Override
+    public int hashCode()
+    {
+        int result = super.hashCode();
+        result = 31 * result + (name != null ? name.hashCode() : 0);
+        result = 31 * result + (imageSource != null ? imageSource.hashCode() : 0);
+        result = 31 * result + width;
+        result = 31 * result + height;
+        return result;
+    }
 }

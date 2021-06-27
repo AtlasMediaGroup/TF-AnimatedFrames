@@ -32,27 +32,31 @@ import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 import org.inventivetalent.animatedframes.AnimatedFrame;
 
-public class AsyncFrameStartEvent extends Event {
+public class AsyncFrameStartEvent extends Event
+{
 
-	private AnimatedFrame frame;
+    private static HandlerList handlerList = new HandlerList();
+    private AnimatedFrame frame;
 
-	public AsyncFrameStartEvent(AnimatedFrame frame) {
-		super(true);
-		this.frame = frame;
-	}
+    public AsyncFrameStartEvent(AnimatedFrame frame)
+    {
+        super(true);
+        this.frame = frame;
+    }
 
-	public AnimatedFrame getFrame() {
-		return frame;
-	}
+    public static HandlerList getHandlerList()
+    {
+        return handlerList;
+    }
 
-	private static HandlerList handlerList = new HandlerList();
+    public AnimatedFrame getFrame()
+    {
+        return frame;
+    }
 
-	@Override
-	public HandlerList getHandlers() {
-		return handlerList;
-	}
-
-	public static HandlerList getHandlerList() {
-		return handlerList;
-	}
+    @Override
+    public HandlerList getHandlers()
+    {
+        return handlerList;
+    }
 }

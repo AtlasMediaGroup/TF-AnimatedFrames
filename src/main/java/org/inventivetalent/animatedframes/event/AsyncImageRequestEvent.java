@@ -34,47 +34,55 @@ import org.bukkit.event.HandlerList;
 
 import java.io.File;
 
-public class AsyncImageRequestEvent extends Event {
+public class AsyncImageRequestEvent extends Event
+{
 
-	private String  source;
-	private File    imageFile;
-	private boolean shouldDownload;
+    private static HandlerList handlerList = new HandlerList();
+    private String source;
+    private File imageFile;
+    private boolean shouldDownload;
 
-	public AsyncImageRequestEvent(String source, File imageFile, boolean shouldDownload) {
-		super(true);
-		this.source = source;
-		this.imageFile = imageFile;
-		this.shouldDownload = shouldDownload;
-	}
+    public AsyncImageRequestEvent(String source, File imageFile, boolean shouldDownload)
+    {
+        super(true);
+        this.source = source;
+        this.imageFile = imageFile;
+        this.shouldDownload = shouldDownload;
+    }
 
-	public String getSource() {
-		return source;
-	}
+    public static HandlerList getHandlerList()
+    {
+        return handlerList;
+    }
 
-	public File getImageFile() {
-		return imageFile;
-	}
+    public String getSource()
+    {
+        return source;
+    }
 
-	public void setImageFile(@NonNull File imageFile) {
-		this.imageFile = imageFile;
-	}
+    public File getImageFile()
+    {
+        return imageFile;
+    }
 
-	public boolean isShouldDownload() {
-		return shouldDownload;
-	}
+    public void setImageFile(@NonNull File imageFile)
+    {
+        this.imageFile = imageFile;
+    }
 
-	public void setShouldDownload(boolean shouldDownload) {
-		this.shouldDownload = shouldDownload;
-	}
+    public boolean isShouldDownload()
+    {
+        return shouldDownload;
+    }
 
-	private static HandlerList handlerList = new HandlerList();
+    public void setShouldDownload(boolean shouldDownload)
+    {
+        this.shouldDownload = shouldDownload;
+    }
 
-	@Override
-	public HandlerList getHandlers() {
-		return handlerList;
-	}
-
-	public static HandlerList getHandlerList() {
-		return handlerList;
-	}
+    @Override
+    public HandlerList getHandlers()
+    {
+        return handlerList;
+    }
 }

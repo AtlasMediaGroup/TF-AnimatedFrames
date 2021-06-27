@@ -34,33 +34,38 @@ import org.inventivetalent.animatedframes.AnimatedFrame;
 
 import java.io.File;
 
-public class FrameSaveEvent extends Event {
+public class FrameSaveEvent extends Event
+{
 
 
-	private AnimatedFrame frame;
-	private File file;
+    private static HandlerList handlerList = new HandlerList();
+    private AnimatedFrame frame;
+    private File file;
 
-	public FrameSaveEvent(AnimatedFrame frame,File file) {
-		this.frame=frame;
-		this.file=file;
-	}
+    public FrameSaveEvent(AnimatedFrame frame, File file)
+    {
+        this.frame = frame;
+        this.file = file;
+    }
 
-	public AnimatedFrame getFrame() {
-		return frame;
-	}
+    public static HandlerList getHandlerList()
+    {
+        return handlerList;
+    }
 
-	public File getFile() {
-		return file;
-	}
+    public AnimatedFrame getFrame()
+    {
+        return frame;
+    }
 
-	private static HandlerList handlerList = new HandlerList();
+    public File getFile()
+    {
+        return file;
+    }
 
-	@Override
-	public HandlerList getHandlers() {
-		return handlerList;
-	}
-
-	public static HandlerList getHandlerList() {
-		return handlerList;
-	}
+    @Override
+    public HandlerList getHandlers()
+    {
+        return handlerList;
+    }
 }

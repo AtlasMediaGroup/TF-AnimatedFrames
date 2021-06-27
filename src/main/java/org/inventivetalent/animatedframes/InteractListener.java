@@ -40,75 +40,98 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-public class InteractListener implements Listener {
+public class InteractListener implements Listener
+{
 
-	private AnimatedFramesPlugin plugin;
+    private final Map<UUID, Callback<PlayerInteractEntityEvent>> entityInteractMap = new HashMap<>();
+    private final Map<UUID, Callback<MapInteractEvent>> mapInteractMap = new HashMap<>();
+    private final Map<UUID, Callback<PlayerInteractEvent>> interactMap = new HashMap<>();
 
-	private final Map<UUID, Callback<PlayerInteractEntityEvent>> entityInteractMap = new HashMap<>();
-	private final Map<UUID, Callback<MapInteractEvent>> mapInteractMap = new HashMap<>();
-	private final Map<UUID, Callback<PlayerInteractEvent>>       interactMap       = new HashMap<>();
+    public InteractListener()
+    {
+    }
 
-	public InteractListener(AnimatedFramesPlugin plugin) {
-		this.plugin = plugin;
-	}
+    @EventHandler
+    public void on(final MapInteractEvent event)
+    {
+        if (event.getItemFrame().hasMetadata("ANIMATED_FRAMES_META"))
+        {
+            event.setCancelled(true);
 
-	@EventHandler
-	public void on(final MapInteractEvent event) {
-		if (event.getItemFrame().hasMetadata("ANIMATED_FRAMES_META")) {
-			event.setCancelled(true);
-
-			Callback<MapInteractEvent> callback;
-			while ((callback = mapInteractMap.remove(event.getPlayer().getUniqueId())) != null)
-				callback.call(event);
-		}
-	}
-
-
-	public void listenForMapInteract(Player player, Callback<MapInteractEvent> callback) {
-		if (callback == null) { return; }
-		if (player != null) {
-			mapInteractMap.put(player.getUniqueId(), callback);
-		} else {
-			callback.call(null);
-		}
-	}
-
-	@EventHandler
-	public void on(PlayerInteractEntityEvent event) {
-		if (event.getRightClicked().getType() == EntityType.ITEM_FRAME) {
-			Callback<PlayerInteractEntityEvent> callback;
-			while ((callback = entityInteractMap.remove(event.getPlayer().getUniqueId())) != null)
-				callback.call(event);
-		}
-	}
-
-	public void listenForEntityInteract(Player player, Callback<PlayerInteractEntityEvent> callback) {
-		if (callback == null) { return; }
-		if (player != null) {
-			entityInteractMap.put(player.getUniqueId(), callback);
-		} else {
-			callback.call(null);
-		}
-	}
-
-	@EventHandler
-	public void on(PlayerInteractEvent event) {
-		if (event.getClickedBlock() != null) {
-			Callback<PlayerInteractEvent> callback;
-			while ((callback = interactMap.remove(event.getPlayer().getUniqueId())) != null)
-				callback.call(event);
-		}
-	}
-
-	public void listenForInteract(Player player, Callback<PlayerInteractEvent> callback) {
-		if (callback == null) { return; }
-		if (player != null) {
-			interactMap.put(player.getUniqueId(), callback);
-		} else {
-			callback.call(null);
-		}
-	}
+            Callback<MapInteractEvent> callback;
+            while ((callback = mapInteractMap.remove(event.getPlayer().getUniqueId())) != null)
+                callback.call(event);
+        }
+    }
 
 
+    public void listenForMapInteract(Player player, Callback<MapInteractEvent> callback)
+    {
+        if (callback == null)
+        {
+            return;
+        }
+        if (player != null)
+        {
+            mapInteractMap.put(player.getUniqueId(), callback);
+        }
+        else
+        {
+            callback.call(null);
+        }
+    }
 
+    @EventHandler
+    public void on(PlayerInteractEntityEvent event)
+    {
+        if (event.getRightClicked().getType() == EntityType.ITEM_FRAME)
+        {
+            Callback<PlayerInteractEntityEvent> callback;
+            while ((callback = entityInteractMap.remove(event.getPlayer().getUniqueId())) != null)
+                callback.call(event);
+        }
+    }
+
+    public void listenForEntityInteract(Player player, Callback<PlayerInteractEntityEvent> callback)
+    {
+        if (callback == null)
+        {
+            return;
+        }
+        if (player != null)
+        {
+            entityInteractMap.put(player.getUniqueId(), callback);
+        }
+        else
+        {
+            callback.call(null);
+        }
+    }
+
+    @EventHandler
+    public void on(PlayerInteractEvent event)
+    {
+        if (event.getClickedBlock() != null)
+        {
+            Callback<PlayerInteractEvent> callback;
+            while ((callback = interactMap.remove(event.getPlayer().getUniqueId())) != null)
+                callback.call(event);
+        }
+    }
+
+    public void listenForInteract(Player player, Callback<PlayerInteractEvent> callback)
+    {
+        if (callback == null)
+        {
+            return;
+        }
+        if (player != null)
+        {
+            interactMap.put(player.getUniqueId(), callback);
+        }
+        else
+        {
+            callback.call(null);
+        }
+    }
 }

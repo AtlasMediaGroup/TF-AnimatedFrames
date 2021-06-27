@@ -39,346 +39,454 @@ import lombok.Synchronized;
 import lombok.ToString;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.ItemFrame;
-import org.inventivetalent.animatedframes.event.*;
+import org.inventivetalent.animatedframes.event.AsyncFrameCreationEvent;
+import org.inventivetalent.animatedframes.event.AsyncFrameLoadEvent;
+import org.inventivetalent.animatedframes.event.AsyncFrameStartEvent;
+import org.inventivetalent.animatedframes.event.AsyncImageRequestEvent;
+import org.inventivetalent.animatedframes.event.FrameSaveEvent;
 import org.inventivetalent.mapmanager.TimingsHelper;
 import org.inventivetalent.vectors.d3.Vector3DDouble;
 
-import java.io.*;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.Reader;
+import java.io.UnsupportedEncodingException;
+import java.io.Writer;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 
 @ToString
 @EqualsAndHashCode
-public class FrameManager {
+public class FrameManager
+{
 
-	public static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
+    public static final Gson GSON = new GsonBuilder().excludeFieldsWithoutExposeAnnotation().create();
+    @Expose
+    @SerializedName("frames")
+    private final Map<String, AnimatedFrame> frameMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    private AnimatedFramesPlugin plugin;
+    private File saveDirectory;
+    private File indexFile;
+    private File imageDirectory;
 
-	private AnimatedFramesPlugin plugin;
+    public FrameManager(AnimatedFramesPlugin plugin)
+    {
+        this.plugin = plugin;
 
-	private File saveDirectory;
-	private File indexFile;
+        try
+        {
+            this.saveDirectory = new File(new File(plugin.getDataFolder(), "saves"), "frames");
+            if (!this.saveDirectory.exists())
+            {
+                this.saveDirectory.mkdirs();
+            }
+            this.indexFile = new File(this.saveDirectory, "index.afi");
+            if (!this.indexFile.exists())
+            {
+                this.indexFile.createNewFile();
+            }
 
-	private File imageDirectory;
+            this.imageDirectory = new File(plugin.getDataFolder(), "images");
+            if (!this.imageDirectory.exists())
+            {
+                this.imageDirectory.mkdirs();
+            }
+        }
+        catch (IOException e)
+        {
+            throw new RuntimeException(e);
+        }
+    }
 
-	@Expose @SerializedName("frames") private final Map<String, AnimatedFrame> frameMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    @Synchronized
+    public AnimatedFrame getFrame(String name)
+    {
+        return frameMap.get(name);
+    }
 
-	public FrameManager(AnimatedFramesPlugin plugin) {
-		this.plugin = plugin;
+    @Synchronized
+    public boolean doesFrameExist(String name)
+    {
+        return frameMap.containsKey(name);
+    }
 
-		try {
-			this.saveDirectory = new File(new File(plugin.getDataFolder(), "saves"), "frames");
-			if (!this.saveDirectory.exists()) { this.saveDirectory.mkdirs(); }
-			this.indexFile = new File(this.saveDirectory, "index.afi");
-			if (!this.indexFile.exists()) { this.indexFile.createNewFile(); }
+    @Synchronized
+    public AnimatedFrame createFrame(String name, String source, ItemFrame firstFrame, ItemFrame secondFrame)
+    {
+        if (frameMap.containsKey(name))
+        {
+            throw new IllegalArgumentException("Frame '" + name + "' already exists");
+        }
+        JsonObject meta = new JsonObject();
+        AsyncFrameCreationEvent creationEvent = new AsyncFrameCreationEvent(name, source, firstFrame, secondFrame, meta);
+        Bukkit.getPluginManager().callEvent(creationEvent);
+        name = creationEvent.getName();
+        source = creationEvent.getSource();
 
-			this.imageDirectory = new File(plugin.getDataFolder(), "images");
-			if (!this.imageDirectory.exists()) { this.imageDirectory.mkdirs(); }
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		}
-	}
+        AnimatedFrame frame = new AnimatedFrame(firstFrame, new Vector3DDouble(firstFrame.getLocation().toVector()), new Vector3DDouble(secondFrame.getLocation().toVector()), name, source);
+        frameMap.put(frame.getName(), frame);
+        frame.setMeta(meta);
 
-	@Synchronized
-	public AnimatedFrame getFrame(String name) {
-		return frameMap.get(name);
-	}
+        return frame;
+    }
 
-	@Synchronized
-	public boolean doesFrameExist(String name) {
-		return frameMap.containsKey(name);
-	}
+    public void startFrame(AnimatedFrame frame)
+    {
+        plugin.frameExecutor.execute(frame);
+    }
 
-	@Synchronized
-	public AnimatedFrame createFrame(String name, String source, ItemFrame firstFrame, ItemFrame secondFrame) {
-		if (frameMap.containsKey(name)) {
-			throw new IllegalArgumentException("Frame '" + name + "' already exists");
-		}
-		JsonObject meta = new JsonObject();
-		AsyncFrameCreationEvent creationEvent = new AsyncFrameCreationEvent(name, source, firstFrame, secondFrame, meta);
-		Bukkit.getPluginManager().callEvent(creationEvent);
-		name = creationEvent.getName();
-		source = creationEvent.getSource();
+    @Synchronized
+    private void addFrame(String name, AnimatedFrame frame)
+    {
+        if (frameMap.containsKey(name))
+        {
+            throw new IllegalArgumentException("Frame '" + name + "' already exists");
+        }
+        frameMap.put(name, frame);
+    }
 
-		AnimatedFrame frame = new AnimatedFrame(firstFrame, new Vector3DDouble(firstFrame.getLocation().toVector()), new Vector3DDouble(secondFrame.getLocation().toVector()), name, source);
-		frameMap.put(frame.getName(), frame);
-		frame.setMeta(meta);
+    public void stopFrame(AnimatedFrame frame)
+    {
+        frame.setPlaying(false);
+    }
 
-		return frame;
-	}
+    @Synchronized
+    public void removeFrame(AnimatedFrame frame)
+    {
+        if (!frameMap.containsKey(frame.getName()))
+        {
+            throw new IllegalArgumentException("Frame '" + frame.getName() + "' does not exists");
+        }
+        frameMap.remove(frame.getName());
 
-	public void startFrame(AnimatedFrame frame) {
-		plugin.frameExecutor.execute(frame);
-	}
+        File imageFile = getImageFile(frame.getImageSource());
+        if (imageFile != null && imageFile.exists())
+        {
+            imageFile.delete();
+        }
+        File cacheDir = new File(new File(plugin.getDataFolder(), "cache"), frame.getName());
+        if (cacheDir.exists())
+        {
+            for (File f : cacheDir.listFiles())
+            {
+                f.delete();
+            }
+            cacheDir.delete();
+        }
+        try
+        {
+            File saveFile = new File(saveDirectory, URLEncoder.encode(frame.getName(), "UTF-8") + ".afd");
+            saveFile.delete();
+        }
+        catch (UnsupportedEncodingException e)
+        {
+            e.printStackTrace();
+        }
 
-	@Synchronized
-	private void addFrame(String name, AnimatedFrame frame) {
-		if (frameMap.containsKey(name)) {
-			throw new IllegalArgumentException("Frame '" + name + "' already exists");
-		}
-		frameMap.put(name, frame);
-	}
+        writeIndexToFile();
+    }
 
-	public void stopFrame(AnimatedFrame frame) {
-		frame.setPlaying(false);
-	}
+    public boolean downloadImage(String source)
+    {
+        try
+        {
+            File targetFile = getImageFile(source);
+            targetFile.delete();
+            try
+            {// Try to load from URL
+                URL url = new URL(source);
+                URLConnection connection = url.openConnection();
+                connection.setRequestProperty("User-Agent", "AnimatedFrames/" + plugin.getDescription().getVersion());
+                try (InputStream in = connection.getInputStream())
+                {
+                    Files.copy(in, targetFile.toPath());
+                }
+                plugin.getLogger().info("Downloaded '" + source + "' to '" + targetFile + "'.");
+                return true;
+            }
+            catch (MalformedURLException malformedUrl)
+            {
+                try
+                {// Try to load from file instead
+                    File file = new File(source);
+                    if (!file.exists())
+                    {
+                        throw new FileNotFoundException();
+                    }
+                    Files.copy(file.toPath(), targetFile.toPath());
+                    plugin.getLogger().info("Copied '" + source + " to '" + targetFile + "'.");
+                    return true;
+                }
+                catch (FileNotFoundException fileNotFound)
+                {
+                    plugin.getLogger().log(Level.WARNING, "Source '" + source + "' is no valid URL", malformedUrl);
+                    plugin.getLogger().log(Level.WARNING, "Source '" + source + "' is no valid File or doesn't exist", fileNotFound);
+                }
+            }
+        }
+        catch (IOException e)
+        {
+            plugin.getLogger().log(Level.SEVERE, "Could not download image from '" + source + "'", e);
+        }
+        return false;
+    }
 
-	@Synchronized
-	public void removeFrame(AnimatedFrame frame) {
-		if (!frameMap.containsKey(frame.getName())) {
-			throw new IllegalArgumentException("Frame '" + frame.getName() + "' does not exists");
-		}
-		frameMap.remove(frame.getName());
+    public File downloadOrGetImage(String source)
+    {
+        File file = getImageFile(source);
 
-		File imageFile = getImageFile(frame.getImageSource());
-		if (imageFile != null && imageFile.exists()) {
-			imageFile.delete();
-		}
-		File cacheDir = new File(new File(plugin.getDataFolder(), "cache"), frame.getName());
-		if (cacheDir.exists()) {
-			for (File f : cacheDir.listFiles()) {
-				f.delete();
-			}
-			cacheDir.delete();
-		}
-		try {
-			File saveFile = new File(saveDirectory, URLEncoder.encode(frame.getName(), "UTF-8") + ".afd");
-			saveFile.delete();
-		} catch (UnsupportedEncodingException e) {
-			e.printStackTrace();
-		}
+        AsyncImageRequestEvent requestEvent = new AsyncImageRequestEvent(source, file, !file.exists());
+        Bukkit.getPluginManager().callEvent(requestEvent);
 
-		writeIndexToFile();
-	}
+        file = requestEvent.getImageFile();
+        if (file.exists())
+        {// Already downloaded
+            if (!requestEvent.isShouldDownload())
+            {
+                return file;
+            }
+            else
+            {
+                file.delete();
+            }
+        }
 
-	public boolean downloadImage(String source) {
-		try {
-			File targetFile = getImageFile(source);
-			targetFile.delete();
-			try {// Try to load from URL
-				URL url = new URL(source);
-				URLConnection connection = url.openConnection();
-				connection.setRequestProperty("User-Agent", "AnimatedFrames/" + plugin.getDescription().getVersion());
-				try (InputStream in = connection.getInputStream()) {
-					Files.copy(in, targetFile.toPath());
-				}
-				plugin.getLogger().info("Downloaded '" + source + "' to '" + targetFile + "'.");
-				return true;
-			} catch (MalformedURLException malformedUrl) {
-				try {// Try to load from file instead
-					File file = new File(source);
-					if (!file.exists()) { throw new FileNotFoundException(); }
-					Files.copy(file.toPath(), targetFile.toPath());
-					plugin.getLogger().info("Copied '" + source + " to '" + targetFile + "'.");
-					return true;
-				} catch (FileNotFoundException fileNotFound) {
-					plugin.getLogger().log(Level.WARNING, "Source '" + source + "' is no valid URL", malformedUrl);
-					plugin.getLogger().log(Level.WARNING, "Source '" + source + "' is no valid File or doesn't exist", fileNotFound);
-				}
-			}
-		} catch (IOException e) {
-			plugin.getLogger().log(Level.SEVERE, "Could not download image from '" + source + "'", e);
-		}
-		return false;
-	}
+        // Download first
+        if (downloadImage(source))
+        {
+            if (!file.exists())
+            {
+                throw new IllegalStateException("Downloaded file doesn't exist");
+            }
+            return file;
+        }
+        return null;
+    }
 
-	public File downloadOrGetImage(String source) {
-		File file = getImageFile(source);
+    File getImageFile(String source)
+    {
+        return new File(imageDirectory, BaseEncoding.base64Url().encode(source.getBytes()));
+    }
 
-		AsyncImageRequestEvent requestEvent = new AsyncImageRequestEvent(source, file, !file.exists());
-		Bukkit.getPluginManager().callEvent(requestEvent);
+    @Synchronized
+    public Set<String> getFrameNames()
+    {
+        return new HashSet<>(frameMap.keySet());
+    }
 
-		file = requestEvent.getImageFile();
-		if (file.exists()) {// Already downloaded
-			if (!requestEvent.isShouldDownload()) {
-				return file;
-			} else {
-				file.delete();
-			}
-		}
+    @Synchronized
+    public Set<AnimatedFrame> getFrames()
+    {
+        return new HashSet<>(frameMap.values());
+    }
 
-		// Download first
-		if (downloadImage(source)) {
-			if (!file.exists()) {
-				throw new IllegalStateException("Downloaded file doesn't exist");
-			}
-			return file;
-		}
-		return null;
-	}
+    @Synchronized
+    public List<AnimatedFrame> getSortedFrames()
+    {
+        return new ArrayList<>(frameMap.values());
+    }
 
-	File getImageFile(String source) {
-		return new File(imageDirectory, BaseEncoding.base64Url().encode(source.getBytes()));
-	}
+    @Synchronized
+    public Set<AnimatedFrame> getFramesInWorld(String worldName)
+    {
+        Set<AnimatedFrame> frames = new HashSet<>();
+        for (AnimatedFrame frame : frameMap.values())
+        {
+            if (frame.getWorldName().equals(worldName))
+            {
+                frames.add(frame);
+            }
+        }
+        return frames;
+    }
 
-	@Synchronized
-	public Set<String> getFrameNames() {
-		return new HashSet<>(frameMap.keySet());
-	}
+    @Synchronized
+    public int size()
+    {
+        return frameMap.size();
+    }
 
-	@Synchronized
-	public Set<AnimatedFrame> getFrames() {
-		return new HashSet<>(frameMap.values());
-	}
+    public void writeToFile(AnimatedFrame frame)
+    {
+        plugin.getLogger().fine("Saving '" + frame.getName() + "'...");
+        try
+        {
+            File saveFile = new File(saveDirectory, URLEncoder.encode(frame.getName(), "UTF-8") + ".afd");
+            if (!saveFile.exists())
+            {
+                saveFile.createNewFile();
+            }
+            Bukkit.getScheduler().runTask(plugin, new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    try
+                    {
+                        Bukkit.getPluginManager().callEvent(new FrameSaveEvent(frame, saveFile));
+                    }
+                    catch (Throwable throwable)
+                    {
+                        plugin.getLogger().log(Level.WARNING, "Unhandled exception in FrameSaveEvent for '" + frame.getName() + "'", throwable);
+                    }
+                }
+            });
+            try (Writer writer = new FileWriter(saveFile))
+            {
+                GSON.toJson(frame, writer);
+            }
+        }
+        catch (IOException e)
+        {
+            plugin.getLogger().log(Level.WARNING, "Failed to save Frame '" + frame.getName() + "'", e);
+        }
+    }
 
-	@Synchronized
-	public List<AnimatedFrame> getSortedFrames() {
-		return new ArrayList<>(frameMap.values());
-	}
+    public void writeIndexToFile()
+    {
+        try
+        {
+            try (Writer writer = new FileWriter(indexFile))
+            {
+                new Gson().toJson(getFrameNames(), writer);
+            }
+        }
+        catch (IOException e)
+        {
+            plugin.getLogger().log(Level.WARNING, "Failed to save Frame-Index file", e);
+        }
+    }
 
-	@Synchronized
-	public Set<AnimatedFrame> getFramesInWorld(String worldName) {
-		Set<AnimatedFrame> frames = new HashSet<>();
-		for (AnimatedFrame frame : frameMap.values()) {
-			if (frame.getWorldName().equals(worldName)) {
-				frames.add(frame);
-			}
-		}
-		return frames;
-	}
+    //	public void writeFramesToFile() {
+    //		if (size() <= 0) {
+    //			plugin.getLogger().info("No frames found");
+    //			return;
+    //		}
+    //
+    ////		TimingsHelper.startTiming("AnimatedFrames - writeToFile");
+    //
+    //		for (AnimatedFrame frame : getFrames()) {
+    //			plugin.getLogger().fine("Saving '" + frame.getName() + "'...");
+    //			try {
+    //				File saveFile = new File(saveDirectory, URLEncoder.encode(frame.getName(), "UTF-8") + ".afd");
+    //				if (!saveFile.exists()) { saveFile.createNewFile(); }
+    //				try {
+    //					Bukkit.getPluginManager().callEvent(new FrameSaveEvent(frame, saveFile));
+    //				} catch (Throwable throwable) {
+    //					plugin.getLogger().log(Level.WARNING, "Unhandled exception in FrameSaveEvent for '" + frame.getName() + "'", throwable);
+    //				}
+    //				try (Writer writer = new FileWriter(saveFile)) {
+    //					GSON.toJson(frame, writer);
+    //				}
+    //			} catch (IOException e) {
+    //				plugin.getLogger().log(Level.WARNING, "Failed to save Frame '" + frame.getName() + "'", e);
+    //			}
+    //		}
+    //
+    //		try {
+    //			try (Writer writer = new FileWriter(indexFile)) {
+    //				new Gson().toJson(getFrameNames(), writer);
+    //			}
+    //		} catch (IOException e) {
+    //			plugin.getLogger().log(Level.WARNING, "Failed to save Frame-Index file", e);
+    //		}
+    //
+    ////		TimingsHelper.stopTiming("AnimatedFrames - writeToFile");
+    //	}
 
-	@Synchronized
-	public int size() {
-		return frameMap.size();
-	}
+    public void readFramesFromFile()
+    {
+        //		TimingsHelper.startTiming("AnimatedFrames - readFromFile");
 
-	public void writeToFile(AnimatedFrame frame) {
-		plugin.getLogger().fine("Saving '" + frame.getName() + "'...");
-		try {
-			File saveFile = new File(saveDirectory, URLEncoder.encode(frame.getName(), "UTF-8") + ".afd");
-			if (!saveFile.exists()) { saveFile.createNewFile(); }
-			Bukkit.getScheduler().runTask(plugin, new Runnable() {
-				@Override
-				public void run() {
-					try {
-						Bukkit.getPluginManager().callEvent(new FrameSaveEvent(frame, saveFile));
-					} catch (Throwable throwable) {
-						plugin.getLogger().log(Level.WARNING, "Unhandled exception in FrameSaveEvent for '" + frame.getName() + "'", throwable);
-					}
-				}
-			});
-			try (Writer writer = new FileWriter(saveFile)) {
-				GSON.toJson(frame, writer);
-			}
-		} catch (IOException e) {
-			plugin.getLogger().log(Level.WARNING, "Failed to save Frame '" + frame.getName() + "'", e);
-		}
-	}
+        Set<String> index;
+        try
+        {
+            try (Reader reader = new FileReader(indexFile))
+            {
+                index = (Set<String>) new Gson().fromJson(reader, HashSet.class);
+            }
+        }
+        catch (IOException e)
+        {
+            TimingsHelper.stopTiming("MapMenu - readFromFile");
+            throw new RuntimeException("Failed to load Menu-Index file", e);
+        }
+        if (index == null)
+        {
+            plugin.getLogger().info("No index found > First time startup or data deleted");
+            return;
+        }
 
-	public void writeIndexToFile() {
-		try {
-			try (Writer writer = new FileWriter(indexFile)) {
-				new Gson().toJson(getFrameNames(), writer);
-			}
-		} catch (IOException e) {
-			plugin.getLogger().log(Level.WARNING, "Failed to save Frame-Index file", e);
-		}
-	}
+        for (String name : index)
+        {
+            try
+            {
+                File file = new File(saveDirectory, URLEncoder.encode(name, StandardCharsets.UTF_8) + ".afd");
+                try (Reader reader = new FileReader(file))
+                {
+                    AnimatedFrame loadedFrame = GSON.fromJson(reader, AnimatedFrame.class);
+                    frameMap.put(loadedFrame.getName(), loadedFrame);
+                    try
+                    {
+                        Bukkit.getPluginManager().callEvent(new AsyncFrameLoadEvent(file, loadedFrame));
+                    }
+                    catch (Throwable throwable)
+                    {
+                        plugin.getLogger().log(Level.WARNING, "Unhandled exception in FrameLoadEvent for '" + loadedFrame.getName() + "'", throwable);
+                    }
+                }
+            }
+            catch (IOException e)
+            {
+                plugin.getLogger().log(Level.WARNING, "Failed to load Menu '" + name + "'", e);
+            }
+        }
+        final AtomicInteger startCounter = new AtomicInteger(1);
+        final int toStart = size();
 
-//	public void writeFramesToFile() {
-//		if (size() <= 0) {
-//			plugin.getLogger().info("No frames found");
-//			return;
-//		}
-//
-////		TimingsHelper.startTiming("AnimatedFrames - writeToFile");
-//
-//		for (AnimatedFrame frame : getFrames()) {
-//			plugin.getLogger().fine("Saving '" + frame.getName() + "'...");
-//			try {
-//				File saveFile = new File(saveDirectory, URLEncoder.encode(frame.getName(), "UTF-8") + ".afd");
-//				if (!saveFile.exists()) { saveFile.createNewFile(); }
-//				try {
-//					Bukkit.getPluginManager().callEvent(new FrameSaveEvent(frame, saveFile));
-//				} catch (Throwable throwable) {
-//					plugin.getLogger().log(Level.WARNING, "Unhandled exception in FrameSaveEvent for '" + frame.getName() + "'", throwable);
-//				}
-//				try (Writer writer = new FileWriter(saveFile)) {
-//					GSON.toJson(frame, writer);
-//				}
-//			} catch (IOException e) {
-//				plugin.getLogger().log(Level.WARNING, "Failed to save Frame '" + frame.getName() + "'", e);
-//			}
-//		}
-//
-//		try {
-//			try (Writer writer = new FileWriter(indexFile)) {
-//				new Gson().toJson(getFrameNames(), writer);
-//			}
-//		} catch (IOException e) {
-//			plugin.getLogger().log(Level.WARNING, "Failed to save Frame-Index file", e);
-//		}
-//
-////		TimingsHelper.stopTiming("AnimatedFrames - writeToFile");
-//	}
+        if (AnimatedFramesPlugin.synchronizedStart)
+        {
+            long startDelay = (2500L * toStart);
+            plugin.getLogger().info("Starting all frames in " + (startDelay / 1000.0) + " seconds.");
+            AnimatedFramesPlugin.synchronizedTime = System.currentTimeMillis() + startDelay;
+        }
+        for (final AnimatedFrame loadedFrame : getFrames())
+        {
+            try
+            {
+                Bukkit.getPluginManager().callEvent(new AsyncFrameStartEvent(loadedFrame));
+            }
+            catch (Throwable throwable)
+            {
+                plugin.getLogger().log(Level.WARNING, "Unhandled exception in FrameStartEvent for '" + loadedFrame.getName() + "'");
+            }
 
-	public void readFramesFromFile() {
-//		TimingsHelper.startTiming("AnimatedFrames - readFromFile");
+            loadedFrame.startCallback = aVoid ->
+                    plugin.getLogger().info("Started '" + loadedFrame.getName() + "' (" + startCounter.getAndIncrement() + "/" + toStart + ")");
+            loadedFrame.refresh();
+            if (!plugin.doNotStartAutomatically)
+            {
+                startFrame(loadedFrame);
+                loadedFrame.setPlaying(true);
+            }
+        }
 
-		Set<String> index;
-		try {
-			try (Reader reader = new FileReader(indexFile)) {
-				index = (Set<String>) new Gson().fromJson(reader, HashSet.class);
-			}
-		} catch (IOException e) {
-			TimingsHelper.stopTiming("MapMenu - readFromFile");
-			throw new RuntimeException("Failed to load Menu-Index file", e);
-		}
-		if (index == null) {
-			plugin.getLogger().info("No index found > First time startup or data deleted");
-			return;
-		}
-
-		for (String name : index) {
-			try {
-				File file = new File(saveDirectory, URLEncoder.encode(name, "UTF-8") + ".afd");
-				try (Reader reader = new FileReader(file)) {
-					AnimatedFrame loadedFrame = GSON.fromJson(reader, AnimatedFrame.class);
-					frameMap.put(loadedFrame.getName(), loadedFrame);
-					try {
-						Bukkit.getPluginManager().callEvent(new AsyncFrameLoadEvent(file, loadedFrame));
-					} catch (Throwable throwable) {
-						plugin.getLogger().log(Level.WARNING, "Unhandled exception in FrameLoadEvent for '" + loadedFrame.getName() + "'", throwable);
-					}
-				}
-			} catch (IOException e) {
-				plugin.getLogger().log(Level.WARNING, "Failed to load Menu '" + name + "'", e);
-			}
-		}
-		final AtomicInteger startCounter = new AtomicInteger(1);
-		final int toStart = size();
-
-		if (AnimatedFramesPlugin.synchronizedStart) {
-			long startDelay = (2500 * toStart);
-			plugin.getLogger().info("Starting all frames in " + (startDelay / 1000.0) + " seconds.");
-			AnimatedFramesPlugin.synchronizedTime = System.currentTimeMillis() + startDelay;
-		}
-		for (final AnimatedFrame loadedFrame : getFrames()) {
-			try {
-				Bukkit.getPluginManager().callEvent(new AsyncFrameStartEvent(loadedFrame));
-			} catch (Throwable throwable) {
-				plugin.getLogger().log(Level.WARNING, "Unhandled exception in FrameStartEvent for '" + loadedFrame.getName() + "'");
-			}
-
-			loadedFrame.startCallback = new Callback<Void>() {
-				@Override
-				public void call(Void aVoid) {
-					plugin.getLogger().info("Started '" + loadedFrame.getName() + "' (" + startCounter.getAndIncrement() + "/" + toStart + ")");
-				}
-			};
-			loadedFrame.refresh();
-			if (!plugin.doNotStartAutomatically) {
-				startFrame(loadedFrame);
-				loadedFrame.setPlaying(true);
-			}
-		}
-
-//		TimingsHelper.stopTiming("AnimatedFrames - readFromFile");
-	}
-
+        //		TimingsHelper.stopTiming("AnimatedFrames - readFromFile");
+    }
 }

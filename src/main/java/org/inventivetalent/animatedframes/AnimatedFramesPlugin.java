@@ -42,96 +42,103 @@ import java.io.File;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
-public class AnimatedFramesPlugin extends JavaPlugin {
+public class AnimatedFramesPlugin extends JavaPlugin
+{
 
-	public FrameManager frameManager;
-	public Executor     frameExecutor;
+    @ConfigValue(path = "synchronizedStart")
+    static boolean synchronizedStart = false;
+    static long synchronizedTime = 0;
+    public FrameManager frameManager;
+    public Executor frameExecutor;
+    public InteractListener interactListener;
+    public boolean updateAvailable;
+    SpigetUpdate spigetUpdate;
+    @ConfigValue(path = "fixImageTypes")
+    boolean fixImageTypes = false;
+    @ConfigValue(path = "doNotStartAutomatically")
+    boolean doNotStartAutomatically = false;
+    @ConfigValue(path = "maxAnimateDistance")
+    int maxAnimateDistance = 32;
+    @ConfigValue(path = "defaultDelay")
+    int defaultDelay = 50;
+    int maxAnimateDistanceSquared = 1024;
 
-	public InteractListener interactListener;
+    @Override
+    public void onEnable()
+    {
+        if (!Bukkit.getPluginManager().isPluginEnabled("MapManager"))
+        {
+            getLogger().warning("**************************************************");
+            getLogger().warning("  ");
+            getLogger().warning("         This plugin depends on MapManager        ");
+            getLogger().warning("             https://r.spiget.org/19198            ");
+            getLogger().warning("  ");
+            getLogger().warning("**************************************************");
+            Bukkit.getPluginManager().disablePlugin(this);
+            return;
+        }
 
-	SpigetUpdate spigetUpdate;
-	public boolean updateAvailable;
+        saveDefaultConfig();
+        PluginAnnotations.CONFIG.load(this, this);
+        PluginAnnotations.COMMAND.load(this, new Commands(this));
 
-	@ConfigValue(path = "fixImageTypes")            boolean fixImageTypes           = false;
-	@ConfigValue(path = "synchronizedStart") static boolean synchronizedStart       = false;
-	@ConfigValue(path = "doNotStartAutomatically")  boolean doNotStartAutomatically = false;
-	@ConfigValue(path = "maxAnimateDistance")       int     maxAnimateDistance      = 32;
-	@ConfigValue(path = "defaultDelay")             int     defaultDelay            = 50;
-	static                                          long    synchronizedTime        = 0;
+        maxAnimateDistanceSquared = maxAnimateDistance * maxAnimateDistance;
 
-	int maxAnimateDistanceSquared = 1024;
+        frameManager = new FrameManager(this);
+        frameExecutor = Executors.newCachedThreadPool();
 
-	@Override
-	public void onEnable() {
-		if (!Bukkit.getPluginManager().isPluginEnabled("MapManager")) {
-			getLogger().warning("**************************************************");
-			getLogger().warning("  ");
-			getLogger().warning("         This plugin depends on MapManager        ");
-			getLogger().warning("             https://r.spiget.org/19198            ");
-			getLogger().warning("  ");
-			getLogger().warning("**************************************************");
-			Bukkit.getPluginManager().disablePlugin(this);
-			return;
-		}
+        Bukkit.getPluginManager().registerEvents(interactListener = new InteractListener(), this);
+        Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
+        Bukkit.getPluginManager().registerEvents(new ClickListener(this), this);
 
-		saveDefaultConfig();
-		PluginAnnotations.CONFIG.load(this, this);
-		PluginAnnotations.COMMAND.load(this, new Commands(this));
+        File cacheDir = new File(getDataFolder(), "cache");
+        if (!cacheDir.exists())
+        {
+            cacheDir.mkdirs();
+        }
 
-		maxAnimateDistanceSquared = maxAnimateDistance * maxAnimateDistance;
+        getLogger().fine("Waiting 2 seconds before loading data...");
+        Bukkit.getScheduler().runTaskLaterAsynchronously(this, () ->
+        {
+            getLogger().info("Loading data...");
+            frameExecutor.execute(() ->
+            {
+                frameManager.readFramesFromFile();
+                getLogger().info("Loaded " + frameManager.size() + " frames.");
+            });
+        }, 40);
 
-		frameManager = new FrameManager(this);
-		frameExecutor = Executors.newCachedThreadPool();
+        new Metrics(this);
 
-		Bukkit.getPluginManager().registerEvents(interactListener = new InteractListener(this), this);
-		Bukkit.getPluginManager().registerEvents(new PlayerListener(this), this);
-		Bukkit.getPluginManager().registerEvents(new ClickListener(this), this);
+        spigetUpdate = new SpigetUpdate(this, 5583).setUserAgent("AnimatedFrames/" + getDescription().getVersion()).setVersionComparator(VersionComparator.SEM_VER_SNAPSHOT);
+        spigetUpdate.checkForUpdate(new UpdateCallback()
+        {
+            @Override
+            public void updateAvailable(String s, String s1, boolean b)
+            {
+                updateAvailable = true;
+                getLogger().info("A new version is available (" + s + "). Download it from https://r.spiget.org/5583");
+                //					getLogger().info("(If the above version is lower than the installed version, you are probably up-to-date)");
+            }
 
-		File cacheDir = new File(getDataFolder(), "cache");
-		if (!cacheDir.exists()) { cacheDir.mkdirs(); }
+            @Override
+            public void upToDate()
+            {
+                getLogger().info("The plugin is up-to-date.");
+            }
+        });
+    }
 
-		getLogger().fine("Waiting 2 seconds before loading data...");
-		Bukkit.getScheduler().runTaskLaterAsynchronously(this, new Runnable() {
-			@Override
-			public void run() {
-				getLogger().info("Loading data...");
-				frameExecutor.execute(new Runnable() {
-					@Override
-					public void run() {
-						frameManager.readFramesFromFile();
-						getLogger().info("Loaded " + frameManager.size() + " frames.");
-					}
-				});
-			}
-		}, 40);
-
-		new Metrics(this);
-
-		spigetUpdate = new SpigetUpdate(this, 5583).setUserAgent("AnimatedFrames/" + getDescription().getVersion()).setVersionComparator(VersionComparator.SEM_VER_SNAPSHOT);
-		spigetUpdate.checkForUpdate(new UpdateCallback() {
-			@Override
-			public void updateAvailable(String s, String s1, boolean b) {
-				updateAvailable = true;
-				getLogger().info("A new version is available (" + s + "). Download it from https://r.spiget.org/5583");
-				//					getLogger().info("(If the above version is lower than the installed version, you are probably up-to-date)");
-			}
-
-			@Override
-			public void upToDate() {
-				getLogger().info("The plugin is up-to-date.");
-			}
-		});
-	}
-
-	@Override
-	public void onDisable() {
-		//		getLogger().info("Saving " + frameManager.size() + " frames...");
-		//		frameExecutor.execute(new Runnable() {
-		//			@Override
-		//			public void run() {
-		//		frameManager.writeFramesToFile();
-		//		getLogger().info("Done.");
-		//			}
-		//		});
-	}
+    @Override
+    public void onDisable()
+    {
+        //		getLogger().info("Saving " + frameManager.size() + " frames...");
+        //		frameExecutor.execute(new Runnable() {
+        //			@Override
+        //			public void run() {
+        //		frameManager.writeFramesToFile();
+        //		getLogger().info("Done.");
+        //			}
+        //		});
+    }
 }

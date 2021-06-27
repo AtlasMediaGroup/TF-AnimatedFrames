@@ -32,20 +32,20 @@ import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.InputStream;
 
-public interface Decoder {
+public interface Decoder
+{
 
-	interface Frame {
+    int read(InputStream in);
 
-	}
+    int getFrameCount();
 
-	int read(InputStream in);
+    Dimension getFrameSize();
 
-	int getFrameCount();
+    int getDelay(int i);
 
-	Dimension getFrameSize();
+    BufferedImage getFrame(int i);
 
-	int getDelay(int i);
-
-	BufferedImage getFrame(int i);
-
+    interface Frame
+    {
+    }
 }

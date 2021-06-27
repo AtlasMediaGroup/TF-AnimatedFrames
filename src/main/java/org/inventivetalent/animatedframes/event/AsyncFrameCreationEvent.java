@@ -33,58 +33,68 @@ import org.bukkit.entity.ItemFrame;
 import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
 
-public class AsyncFrameCreationEvent extends Event {
+public class AsyncFrameCreationEvent extends Event
+{
 
-	private String    name;
-	private String    source;
-	private ItemFrame firstFrame, secondFrame;
-	private JsonObject meta;
+    private static HandlerList handlerList = new HandlerList();
+    private String name;
+    private String source;
+    private ItemFrame firstFrame, secondFrame;
+    private JsonObject meta;
 
-	public AsyncFrameCreationEvent(String name, String source, ItemFrame firstFrame, ItemFrame secondFrame, JsonObject meta) {
-		super(true);
-		this.name = name;
-		this.source = source;
-		this.firstFrame = firstFrame;
-		this.secondFrame = secondFrame;
-		this.meta = meta;
-	}
+    public AsyncFrameCreationEvent(String name, String source, ItemFrame firstFrame, ItemFrame secondFrame, JsonObject meta)
+    {
+        super(true);
+        this.name = name;
+        this.source = source;
+        this.firstFrame = firstFrame;
+        this.secondFrame = secondFrame;
+        this.meta = meta;
+    }
 
-	public String getName() {
-		return name;
-	}
+    public static HandlerList getHandlerList()
+    {
+        return handlerList;
+    }
 
-	public void setName(String name) {
-		this.name = name;
-	}
+    public String getName()
+    {
+        return name;
+    }
 
-	public String getSource() {
-		return source;
-	}
+    public void setName(String name)
+    {
+        this.name = name;
+    }
 
-	public void setSource(String source) {
-		this.source = source;
-	}
+    public String getSource()
+    {
+        return source;
+    }
 
-	public ItemFrame getFirstFrame() {
-		return firstFrame;
-	}
+    public void setSource(String source)
+    {
+        this.source = source;
+    }
 
-	public ItemFrame getSecondFrame() {
-		return secondFrame;
-	}
+    public ItemFrame getFirstFrame()
+    {
+        return firstFrame;
+    }
 
-	public JsonObject getMeta() {
-		return meta;
-	}
+    public ItemFrame getSecondFrame()
+    {
+        return secondFrame;
+    }
 
-	private static HandlerList handlerList = new HandlerList();
+    public JsonObject getMeta()
+    {
+        return meta;
+    }
 
-	@Override
-	public HandlerList getHandlers() {
-		return handlerList;
-	}
-
-	public static HandlerList getHandlerList() {
-		return handlerList;
-	}
+    @Override
+    public HandlerList getHandlers()
+    {
+        return handlerList;
+    }
 }
