@@ -211,9 +211,9 @@ public class AnimatedFrame extends BaseFrameMapAbstract implements Runnable, Cli
                         }
 
                         // Reset all images
-                        for (GifDecoder.GifFrame object : decoder.frames)
+                        for (Object object : decoder.frames)
                         {
-                            object.image.flush();
+                            ((GifDecoder.GifFrame) object).image.flush();
                         }
                         decoder.frames.clear();
 
